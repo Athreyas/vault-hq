@@ -1,15 +1,14 @@
-// The app's managed state: where its files live and the settings every command reads.
+// The app's managed state: where its files live, the hotkeys bound, and the core.
 //
-// Seam for stream A: when `hq_core::hq::Hq` lands, `setup` in main.rs also does
-// `app.manage(Hq::open(&shell.dirs.support, &shell.dirs.cache)?)`, the other streams'
-// commands take `State<'_, Hq>`, and `Shell::settings`/`Shell::update_settings` delegate
-// to the facade so there is one copy of the settings in memory. Until then the shell
-// owns the settings file through `hq_core::settings::Store`.
+// Settings live in one place, `hq_core::hq::Hq` (also managed on its own as `Arc<Hq>`
+// for the core commands): `Shell::settings`/`update_settings` delegate to it, so there is
+// one copy in memory and one writer of settings.json.
 
 use std::path::PathBuf;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
-use hq_core::settings::{Settings, Store};
+use hq_core::hq::Hq;
+use hq_core::settings::Settings;
 use hq_core::{Error, Result};
 use tauri_plugin_global_shortcut::Shortcut;
 
@@ -28,66 +27,47 @@ pub struct Bound {
 }
 
 pub struct Shell {
-    pub dirs: Dirs,
-    store: Store,
-    settings: RwLock<Settings>,
+    /// The same `Hq` the core commands get as `State<Arc<Hq>>`.
+    pub hq: Arc<Hq>,
     pub hotkeys: Mutex<Bound>,
-    /// Set when settings.json could not be read: the app runs on defaults and refuses
-    /// to save, so the user's file is never overwritten by a reset.
-    pub broken: Option<String>,
 }
 
 impl Shell {
     /// A settings file that does not parse is an error the user must see, not a reset:
     /// starting with defaults would silently drop their vault list on the next save.
     pub fn open(dirs: Dirs) -> Result<Shell> {
-        let store = Store::new(&dirs.support);
-        let settings = store.load()?;
+        let hq = Hq::open(&dirs.support, &dirs.cache)?;
         Ok(Shell {
-            dirs,
-            store,
-            settings: RwLock::new(settings),
+            hq: Arc::new(hq),
             hotkeys: Mutex::new(Bound::default()),
-            broken: None,
         })
     }
 
     /// Defaults in memory, saves refused: what the app runs on when `open` failed.
     pub fn degraded(dirs: Dirs, why: &Error) -> Shell {
-        let store = Store::new(&dirs.support);
+        let hq = Hq::degraded(&dirs.support, &dirs.cache, why);
         Shell {
-            dirs,
-            store,
-            settings: RwLock::new(Settings::default()),
+            hq: Arc::new(hq),
             hotkeys: Mutex::new(Bound::default()),
-            broken: Some(format!(
-                "Settings could not be read ({why}). HQ is running on defaults and will not save until settings.json is fixed or removed."
-            )),
         }
+    }
+
+    /// Why settings can't be saved this run, if they couldn't be read.
+    pub fn broken(&self) -> Option<&str> {
+        self.hq.broken()
     }
 
     pub fn settings(&self) -> Settings {
-        match self.settings.read() {
-            Ok(s) => s.clone(),
-            Err(poisoned) => poisoned.into_inner().clone(),
-        }
+        self.hq.settings()
     }
 
     /// Apply `f` to a copy, save it, and only then make it current, so a failed save
-    /// leaves memory and disk in agreement.
+    /// leaves memory and disk in agreement. Vaults reopen if the list or blocks changed.
     pub fn update_settings(&self, f: impl FnOnce(&mut Settings) -> Result<()>) -> Result<Settings> {
-        if let Some(why) = &self.broken {
-            return Err(Error::Unavailable(why.clone()));
-        }
-        let mut guard = self
-            .settings
-            .write()
-            .map_err(|_| Error::Internal("settings lock poisoned".into()))?;
-        let mut next = guard.clone();
-        f(&mut next)?;
-        self.store.save(&next)?;
-        *guard = next.clone();
-        Ok(next)
+        self.hq.change_settings(|s| {
+            f(s)?;
+            Ok(s.clone())
+        })
     }
 
     pub fn bound(&self) -> Bound {

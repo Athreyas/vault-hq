@@ -106,7 +106,7 @@ export default function Create({ request, status, onClose, notify, go, onSaved }
               <select value={extra} onChange={(e) => setExtra(e.target.value)} disabled={!templates.data?.length}>
                 <option value="">{templates.data?.length ? "blank note" : templates.error && notBuilt(templates.error) ? "templates not in this build" : "no templates in _templates/"}</option>
                 {templates.data?.map((t) => (
-                  <option key={t.id} value={t.id}>
+                  <option key={`${t.vault}:${t.rel}`} value={t.rel}>
                     {t.name}
                   </option>
                 ))}

@@ -3,16 +3,28 @@
 // stream has landed yet answers `{kind: "Unavailable"}` instead of Tauri's bare
 // "not found", so the UI can say "not in this build yet" and carry on.
 
-use hq_core::Error;
+use std::sync::Arc;
+
+use hq_core::hq::Hq;
+use hq_core::{Error, Result};
 use tauri::ipc::Invoke;
 use tauri::{generate_handler, Runtime};
 
 pub mod app;
 // ---- streams: add `pub mod <area>;` below (A core, B tasks, C search, E, F, W) ----
-pub mod bookmarks;
-pub mod onboarding;
-pub mod search;
+// A core
+pub mod home;
+pub mod notes;
+pub mod vaults;
+// B tasks
 pub mod tasks;
+// C search
+pub mod search;
+// F bookmarks
+pub mod bookmarks;
+// E onboarding
+pub mod onboarding;
+// W widgets
 pub mod widgets;
 
 mod names;
@@ -31,6 +43,28 @@ macro_rules! hq_commands {
             app::capture_open,
             app::capture_hide,
             // ---- streams: add `<area>::<command>,` lines below ----
+            // A core
+            vaults::vaults_list,
+            vaults::vault_add,
+            vaults::vault_create,
+            vaults::vault_remove,
+            vaults::vault_set_primary,
+            vaults::vault_candidates,
+            notes::notes_list,
+            notes::note_get,
+            notes::note_source,
+            notes::note_save,
+            notes::note_create,
+            notes::note_move,
+            notes::note_archive,
+            notes::templates_list,
+            home::capture,
+            home::home,
+            home::days,
+            home::needs,
+            home::needs_decide,
+            home::inbox,
+            home::inbox_archive,
             // B tasks
             tasks::tasks_query,
             tasks::task_add,
@@ -110,6 +144,18 @@ pub fn handler<R: Runtime>() -> impl Fn(Invoke<R>) -> bool + Send + Sync + 'stat
         }
         registered(invoke)
     }
+}
+
+/// Run `f` against `Hq` on a blocking thread: scans and file IO must not hold up the
+/// async runtime the window's IPC runs on.
+pub async fn blocking<T: Send + 'static>(
+    hq: &Arc<Hq>,
+    f: impl FnOnce(&Hq) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    let hq = hq.clone();
+    tauri::async_runtime::spawn_blocking(move || f(&hq))
+        .await
+        .map_err(|e| Error::Internal(format!("background task failed: {e}")))?
 }
 
 /// Pins the runtime type of the closure `generate_handler!` makes.

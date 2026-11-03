@@ -24,6 +24,7 @@
     "allow-note-save",
     "allow-note-create",
     "allow-note-move",
+    "allow-note-archive",
     "allow-templates-list",
     "allow-capture",
     "allow-home",

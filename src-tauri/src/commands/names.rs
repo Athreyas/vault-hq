@@ -23,6 +23,7 @@ pub const COMMANDS: &[&str] = &[
     "note_save",
     "note_create",
     "note_move",
+    "note_archive",
     "templates_list",
     // capture (A)
     "capture",

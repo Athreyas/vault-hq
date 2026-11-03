@@ -2,60 +2,39 @@
 // Thin: validate, act, map to `hq_core::Error`.
 
 use std::net::IpAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
-use hq_core::settings::{self, Settings};
-use hq_core::types::{split_note_id, AppStatus, VaultInfo};
-use hq_core::vault::{scan, Vault};
+use hq_core::settings::Settings;
+use hq_core::types::AppStatus;
 use hq_core::{Error, Result};
 use serde_json::Value;
 use tauri::{AppHandle, Runtime, State, Url};
 
 use crate::hotkeys;
+use crate::jobs;
 use crate::state::Shell;
 use crate::windows;
 
 #[tauri::command]
 pub async fn app_status(shell: State<'_, Shell>) -> Result<AppStatus> {
-    let s = shell.settings();
-    let mut vaults = Vec::new();
-    let mut problems: Vec<String> = shell.broken.iter().cloned().collect();
-    for entry in &s.vaults {
-        let dir = Path::new(&entry.path);
-        if let Some(why) = settings::blocked(&s, dir) {
-            problems.push(format!("{}: {why}", entry.name));
-            continue;
-        }
-        if !dir.is_dir() {
-            problems.push(format!(
-                "{}: the folder {} is gone or not mounted.",
-                entry.name, entry.path
-            ));
-            continue;
-        }
-        match Vault::open(dir) {
-            Ok(v) => {
-                let found = scan(&v);
-                vaults.push(VaultInfo {
-                    primary: s.primary_vault.as_deref() == Some(v.id.as_str()),
-                    id: v.id,
-                    name: v.name,
-                    path: entry.path.clone(),
-                    notes: found.notes.len() as u32,
-                    unreadable: found.unreadable.len() as u32,
-                });
-            }
-            Err(e) => problems.push(format!("{}: {e}", entry.name)),
-        }
-    }
-    Ok(AppStatus {
-        version: env!("CARGO_PKG_VERSION").into(),
-        vaults,
-        primary_vault: s.primary_vault.clone(),
-        problems,
-        mcp_command: mcp_command(),
+    let hq = shell.hq.clone();
+    let broken = shell.broken().map(str::to_string);
+    super::blocking(&hq, move |hq| {
+        let reg = hq.registry();
+        let problems = broken
+            .into_iter()
+            .chain(reg.problems().iter().cloned())
+            .collect();
+        Ok(AppStatus {
+            version: env!("CARGO_PKG_VERSION").into(),
+            vaults: reg.info(),
+            primary_vault: reg.primary_id().map(str::to_string),
+            problems,
+            mcp_command: mcp_command(),
+        })
     })
+    .await
 }
 
 #[tauri::command]
@@ -79,12 +58,17 @@ pub fn settings_update<R: Runtime>(
     if keys_changed {
         hotkeys::apply(&app, hotkeys::parse_all(&next.hotkeys)?)?;
     }
+    let blocked_changed = next.blocked_vault_names != current.blocked_vault_names;
     let saved = shell.update_settings(|s| {
         *s = next;
         Ok(())
     });
     if saved.is_err() && keys_changed {
         let _ = hotkeys::apply(&app, prev_bound);
+    }
+    if saved.is_ok() && blocked_changed {
+        // a newly blocked vault must stop being watched, an unblocked one start
+        jobs::restart(&app);
     }
     saved
 }
@@ -196,39 +180,7 @@ pub fn reveal(shell: State<'_, Shell>, what: String) -> Result<()> {
 }
 
 fn reveal_path(shell: &Shell, what: &str) -> Result<PathBuf> {
-    match what {
-        "settings" => return Ok(shell.dirs.support.join("settings.json")),
-        "support" => return Ok(shell.dirs.support.clone()),
-        "cache" => return Ok(shell.dirs.cache.clone()),
-        _ => {}
-    }
-    let s = shell.settings();
-    let (vault_id, rel) = match what.strip_prefix("vault:") {
-        Some(id) => (id, None),
-        None => match split_note_id(what) {
-            Some((v, r)) => (v, Some(r)),
-            None => return Err(Error::Invalid(format!("Nothing to show for \"{what}\"."))),
-        },
-    };
-    let vault = open_vault(&s, vault_id)?;
-    match rel {
-        None => Ok(vault.root),
-        Some(r) => vault.resolve_rel(r),
-    }
-}
-
-/// A vault from settings by id, refusing blocked ones before anything inside is read.
-fn open_vault(s: &Settings, id: &str) -> Result<Vault> {
-    let entry = s
-        .vaults
-        .iter()
-        .find(|v| v.id == id)
-        .ok_or_else(|| Error::NotFound(format!("No vault with id {id} in settings.")))?;
-    let dir = Path::new(&entry.path);
-    if let Some(why) = settings::blocked(s, dir) {
-        return Err(Error::Denied(why));
-    }
-    Vault::open(dir)
+    shell.hq.reveal_target(what)
 }
 
 #[tauri::command]
@@ -256,6 +208,8 @@ fn mcp_command() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hq_core::settings;
+    use hq_core::vault::Vault;
     use serde_json::json;
 
     #[test]

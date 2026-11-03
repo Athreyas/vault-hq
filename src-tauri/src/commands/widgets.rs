@@ -16,8 +16,8 @@ use tauri::{AppHandle, Manager, Runtime, State};
 use crate::commands::tasks::{vaults_from, TasksState};
 use crate::state::Shell;
 
-/// The widgets' window on the vault: the task index stream B keeps. The inbox joins when
-/// stream A lands; until then its widget says it isn't connected.
+/// The widgets' window on the vault: the task index stream B keeps, and the inbox
+/// across every open vault from the core (`Hq`).
 pub struct AppSources<R: Runtime> {
     app: AppHandle<R>,
 }
@@ -36,6 +36,18 @@ impl<R: Runtime> WidgetSources for AppSources<R> {
             .all_tasks()?
             .iter()
             .map(widgets::tasks::from_task)
+            .collect())
+    }
+
+    fn inbox(&self) -> Result<Vec<widgets::InboxInput>> {
+        let hq = self.app.state::<Arc<hq_core::hq::Hq>>();
+        Ok(hq
+            .inbox()
+            .into_iter()
+            .map(|i| widgets::InboxInput {
+                title: i.title,
+                date: Some(i.created),
+            })
             .collect())
     }
 }
