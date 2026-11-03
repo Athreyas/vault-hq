@@ -1,21 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { NoteSummary, NoteView } from "../../../server/types.ts";
 import type { Notify } from "../App.tsx";
-import { noteUrl, useData } from "../api.ts";
+import { api, noteUrl, useCall, type NoteView } from "../api.ts";
 import Editor from "./Editor.tsx";
+import Problem from "./Problem.tsx";
 import { Markdown, RichLine } from "./Rich.tsx";
 
-// The vault's notes, read inside HQ: a filterable list on the left, the note on the right
+const ARCHIVE = "08-Archive/";
+
+// The vaults' notes, read inside HQ: a filterable list on the left, the note on the right
 // with its properties and the notes that link to it.
 export default function Notes({ note, notify }: { note: string | null; notify: Notify }) {
-  const list = useData<NoteSummary[]>("/api/notes", 60_000);
-  const view = useData<NoteView>(note ? `/api/note?ref=${encodeURIComponent(note)}` : "/api/notes", 30_000);
+  const list = useCall(() => api.notes(), "notes", { refreshMs: 60_000 });
+  const view = useCall<NoteView | null>(() => (note ? api.note(note) : Promise.resolve(null)), note ?? "", { refreshMs: 30_000 });
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<"folder" | "recent">("folder");
   const [sel, setSel] = useState(0);
-  const [editing, setEditing] = useState<string | null>(null); // rel of the note being edited
+  const [editing, setEditing] = useState<string | null>(null); // id of the note being edited
   const input = useRef<HTMLInputElement>(null);
-  const shown = note && view.data && "body" in view.data ? view.data : null;
+  const shown = note && view.data ? view.data : null;
+  const vaults = useMemo(() => new Set((list.data ?? []).map((n) => n.vault)).size, [list.data]);
 
   const items = useMemo(() => {
     const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
@@ -25,17 +28,39 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
 
   useEffect(() => setSel(0), [filter, sort]);
   useEffect(() => setEditing(null), [note]); // a different note: leave the editor (its draft is kept)
+
+  async function reveal() {
+    if (!shown) return;
+    try {
+      await api.reveal(shown.id);
+    } catch (e) {
+      notify((e as Error).message, "error");
+    }
+  }
+
+  async function archive() {
+    if (!shown || shown.rel.startsWith(ARCHIVE)) return;
+    if (!window.confirm(`Move “${shown.title}” to ${ARCHIVE}? Links to it keep working.`)) return;
+    try {
+      const moved = await api.noteMove(shown.id, ARCHIVE + shown.rel.replace(/^.*\//, ""));
+      notify(`Archived: ${shown.title}`);
+      window.location.hash = noteUrl(moved.id);
+    } catch (e) {
+      notify((e as Error).message, "error");
+    }
+  }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest("input, textarea, select") || e.ctrlKey || e.metaKey || e.altKey) return;
+      if ((e.target as HTMLElement).closest("input, textarea, select, [role=dialog]") || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === "f") {
         e.preventDefault();
         input.current?.focus();
       } else if (e.key === "r") setSort((s) => (s === "folder" ? "recent" : "folder"));
-      else if (e.key === "o" && shown) window.location.href = shown.obsidian;
+      else if (e.key === "o" && shown) void reveal();
       else if (e.key === "e" && shown && !editing) {
         e.preventDefault();
-        setEditing(shown.rel);
+        setEditing(shown.id);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -54,7 +79,7 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
       setSel((s) => Math.max(s - 1, 0));
     } else if (e.key === "Enter" && items[sel]) {
       e.preventDefault();
-      window.location.hash = noteUrl(items[sel].rel);
+      window.location.hash = noteUrl(items[sel].id);
     }
   }
 
@@ -77,16 +102,17 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
             recent
           </button>
         </div>
-        {list.error && <p className="error">{list.error}</p>}
+        {list.error && <Problem error={list.error} what="the note list" />}
         <ul className="note-list">
           {items.map((n, i) => {
-            const head = sort === "folder" && n.folder !== lastFolder ? n.folder || "vault root" : null;
-            lastFolder = n.folder;
-            const active = shown?.rel === n.rel;
+            const folder = vaults > 1 ? `${n.vault.slice(0, 6)} · ${n.folder}` : n.folder;
+            const head = sort === "folder" && folder !== lastFolder ? folder || "vault root" : null;
+            lastFolder = folder;
+            const active = shown?.id === n.id;
             return (
-              <li key={n.rel}>
+              <li key={n.id}>
                 {head && <p className="note-folder">{head}</p>}
-                <a href={noteUrl(n.rel)} className={`note-item ${i === sel && filter ? "is-selected" : ""} ${active ? "is-active" : ""}`} aria-current={active ? "page" : undefined} title={n.rel}>
+                <a href={noteUrl(n.id)} className={`note-item ${i === sel && filter ? "is-selected" : ""} ${active ? "is-active" : ""}`} aria-current={active ? "page" : undefined} title={n.rel}>
                   <span>{n.title}</span>
                   <small>{sort === "recent" ? `${n.updated} · ${n.folder}` : n.updated}</small>
                 </a>
@@ -99,7 +125,7 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
 
       <article className="note-reader">
         {!note && <p className="empty is-large">Pick a note, or press f and type to filter.</p>}
-        {note && view.error && <p className="error">{view.error}</p>}
+        {note && view.error && <Problem error={view.error} what={note} />}
         {note && !shown && !view.error && <p className="empty">Opening {note}…</p>}
         {shown && (
           <>
@@ -108,13 +134,18 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
               <h1>{shown.title}</h1>
               <div className="note-actions">
                 {!editing && (
-                  <button type="button" className="button is-primary" onClick={() => setEditing(shown.rel)} title="Edit here (e)">
+                  <button type="button" className="button is-primary" onClick={() => setEditing(shown.id)} title="Edit here (e)">
                     edit
                   </button>
                 )}
-                <a className="button" href={shown.obsidian} title="Open in Obsidian (o)">
-                  open in obsidian
-                </a>
+                <button type="button" className="button" onClick={() => void reveal()} title="Show in Finder (o)">
+                  show in finder
+                </button>
+                {!shown.rel.startsWith(ARCHIVE) && (
+                  <button type="button" className="button" onClick={() => void archive()} title={`Move to ${ARCHIVE}`}>
+                    archive
+                  </button>
+                )}
               </div>
               {shown.props.length > 0 && (
                 <dl className="note-props">
@@ -129,9 +160,9 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
                 </dl>
               )}
             </header>
-            {editing === shown.rel ? (
+            {editing === shown.id ? (
               <Editor
-                rel={shown.rel}
+                id={shown.id}
                 notify={notify}
                 onClose={(saved) => {
                   setEditing(null);
@@ -151,8 +182,8 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
               {shown.backlinks.length > 0 && (
                 <ul>
                   {shown.backlinks.map((b) => (
-                    <li key={b.rel}>
-                      <a className="note-link" href={noteUrl(b.rel)}>
+                    <li key={b.id}>
+                      <a className="note-link" href={noteUrl(b.id)}>
                         {b.title}
                       </a>{" "}
                       <small>{b.folder}</small>

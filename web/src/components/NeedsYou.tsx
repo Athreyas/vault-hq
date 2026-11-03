@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Need } from "../../../server/types.ts";
 import type { Notify } from "../App.tsx";
-import { noteUrl, post, useData } from "../api.ts";
+import { api, noteUrl, useCall } from "../api.ts";
+import Problem from "./Problem.tsx";
 
 export default function NeedsYou({ notify, onChange }: { notify: Notify; onChange: () => void }) {
-  const { data, error, reload } = useData<Need[]>("/api/needs");
+  const { data, error, reload } = useCall(api.needs, "needs");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<string | null>(null);
   const [why, setWhy] = useState("");
@@ -33,8 +33,8 @@ export default function NeedsYou({ notify, onChange }: { notify: Notify; onChang
     if (!selected || !outcome) return;
     setBusy(true);
     try {
-      const r = await post<{ result: string }>("/api/needs/decide", { id: selected.id, outcome, why });
-      notify(`${r.result}: ${selected.title}`);
+      await api.needsDecide(selected.id, outcome, why);
+      notify(`Recorded: ${selected.title}`);
       setSelectedId(null);
       reload();
       onChange();
@@ -45,13 +45,13 @@ export default function NeedsYou({ notify, onChange }: { notify: Notify; onChang
     }
   }
 
-  if (error) return <p className="empty">Could not load the queue: {error}</p>;
+  if (error) return <Problem error={error} what="the needs queue" />;
   if (!data) return <p className="empty">Reading the vault…</p>;
   if (!items.length) {
     return (
       <div className="empty is-large">
         <p>Nothing is waiting on you.</p>
-        <p className="empty-hint">Overdue tasks, inbox captures, proposals, alerts and sync errors land here when they need a decision.</p>
+        <p className="empty-hint">Overdue tasks, inbox captures, agent proposals and stale projects land here when they need a decision.</p>
       </div>
     );
   }
@@ -114,12 +114,12 @@ export default function NeedsYou({ notify, onChange }: { notify: Notify; onChang
           <details className="evidence">
             <summary>
               Evidence
-              {selected.evidence.rel && <span className="evidence-rel">{selected.evidence.rel.replace(/^.*\//, "").replace(/\.md$/, "")}</span>}
+              {selected.evidence.note && <span className="evidence-rel">{selected.evidence.note.replace(/^.*[/:]/, "").replace(/\.md$/, "")}</span>}
               {selected.evidence.when && <span className="evidence-when">{selected.evidence.when}</span>}
             </summary>
-            {selected.evidence.rel && (
-              <a className="note-link" href={noteUrl(selected.evidence.rel)}>
-                Open {selected.evidence.rel}
+            {selected.evidence.note && (
+              <a className="note-link" href={noteUrl(selected.evidence.note)}>
+                Open {selected.evidence.note.replace(/^[^:]*:/, "")}
               </a>
             )}
             {selected.evidence.excerpt && <pre className="evidence-text">{selected.evidence.excerpt}</pre>}
