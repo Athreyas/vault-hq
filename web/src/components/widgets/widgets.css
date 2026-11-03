@@ -1,0 +1,429 @@
+/* The widget row. Every colour and size comes from tokens.css. */
+
+.w-grid-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.w-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  font-size: var(--t-xs);
+}
+
+.w-toolbar-gap {
+  flex: 1;
+}
+
+.w-toolbar .button {
+  font-size: var(--t-xs);
+}
+
+.w-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.w-cell {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.is-editing .w-cell[draggable="true"] {
+  cursor: grab;
+}
+
+.w-cell.is-dragging {
+  opacity: 0.4;
+}
+
+.w-cell.is-drop-before::before,
+.w-cell.is-drop-after::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+}
+
+.w-cell.is-drop-before::before {
+  left: calc(-1 * var(--space-2) - 1px);
+}
+
+.w-cell.is-drop-after::after {
+  right: calc(-1 * var(--space-2) - 1px);
+}
+
+.w-cell.is-grabbed .w-card {
+  border-color: var(--accent);
+}
+
+.w-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: var(--line-w) solid var(--line);
+  border-left-width: 2px;
+  background: var(--bg-raised);
+  font-size: var(--t-sm);
+}
+
+/* status is a quiet edge, never a filled alarm */
+.w-card.is-warn {
+  border-left-color: var(--accent);
+}
+
+.w-card.is-bad {
+  border-left-color: var(--attention);
+}
+
+.is-editing .w-card {
+  border-style: dashed;
+  border-left-style: solid;
+}
+
+.w-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.w-title {
+  flex: none;
+  font-size: var(--t-xs);
+  font-weight: 700;
+  text-transform: lowercase;
+  color: var(--ink-muted);
+}
+
+.w-kicker {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+}
+
+.w-controls {
+  display: flex;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
+.w-handle {
+  cursor: grab;
+}
+
+.w-handle[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.w-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.w-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.w-row > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w-big {
+  font-size: var(--t-xl);
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.w-num {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.w-num.is-warn,
+.w-note.is-warn {
+  color: var(--accent);
+}
+
+.w-num.is-bad,
+.w-note.is-bad,
+.w-mark.is-bad {
+  color: var(--attention);
+}
+
+.w-mark.is-ok {
+  color: var(--good);
+}
+
+.w-muted {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+
+.w-note {
+  font-size: var(--t-xs);
+  color: var(--ink-muted);
+}
+
+.w-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-human);
+}
+
+.w-lines > li {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.w-metric {
+  display: grid;
+  grid-template-columns: 3.2em 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.w-key {
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+}
+
+.w-spark,
+.w-bars {
+  display: block;
+  width: 100%;
+  height: 1.6em;
+  overflow: visible;
+}
+
+.w-spark.is-empty {
+  color: var(--ink-faint);
+}
+
+.w-spark-line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.w-spark-area {
+  fill: var(--line);
+  opacity: 0.6;
+}
+
+.w-bars rect {
+  fill: var(--ink-muted);
+}
+
+.w-bars line {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.w-meter {
+  position: relative;
+  display: block;
+  flex: 1;
+  height: 0.6em;
+  min-width: 3em;
+  border: var(--line-w) solid var(--line-strong);
+  background: var(--bg-sunk);
+}
+
+.w-meter > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--ink-muted);
+}
+
+.w-meter.is-warn > span {
+  background: var(--accent);
+}
+
+.w-meter.is-bad > span {
+  background: var(--attention);
+}
+
+/* ---- dialogs: settings and the catalog ---- */
+
+.w-dialog {
+  width: min(560px, calc(100vw - var(--space-7)));
+  max-height: calc(100vh - var(--space-7));
+  padding: 0;
+  border: var(--line-w) solid var(--line-strong);
+  background: var(--bg-raised);
+  color: var(--ink);
+}
+
+.w-dialog::backdrop {
+  background: var(--scrim);
+}
+
+.w-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+}
+
+.w-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.w-dialog-head h2 {
+  font-size: var(--t-md);
+}
+
+.w-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.w-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.w-field label,
+.w-field legend {
+  font-size: var(--t-xs);
+  color: var(--ink-muted);
+}
+
+.w-field small {
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+}
+
+.w-field input[type="text"],
+.w-field input[type="url"],
+.w-field input[type="number"],
+.w-field select {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: var(--line-w) solid var(--line-strong);
+  background: var(--bg-sunk);
+  border-radius: var(--radius);
+}
+
+.w-field.is-toggle {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.w-field.is-toggle small {
+  flex-basis: 100%;
+}
+
+.w-field.is-toggle label {
+  color: var(--ink);
+  font-size: var(--t-sm);
+}
+
+.w-number {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.w-number input[type="number"] {
+  width: 8em;
+}
+
+.w-field.is-list {
+  gap: var(--space-3);
+}
+
+.w-list-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7em, 1fr)) auto;
+  align-items: end;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--line-w) solid var(--line);
+  background: var(--bg);
+}
+
+.w-form-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.w-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.w-catalog-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-3);
+  text-align: left;
+  border: var(--line-w) solid var(--line);
+  background: transparent;
+  cursor: pointer;
+}
+
+.w-catalog-item:hover:not(:disabled),
+.w-catalog-item:focus-visible {
+  border-color: var(--accent);
+}
+
+.w-catalog-item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
