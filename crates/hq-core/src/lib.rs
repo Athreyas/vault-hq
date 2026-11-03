@@ -20,7 +20,9 @@ pub mod vault;
 // B tasks
 pub mod tasks;
 // C search
+pub mod actions;
 pub mod ollama;
+pub mod reminders;
 pub mod search;
 // E onboarding
 pub mod onboarding;
