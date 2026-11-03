@@ -6,9 +6,10 @@ use std::sync::Arc;
 use hq_core::hq::Hq;
 use hq_core::types::{VaultCandidate, VaultInfo, VaultLayout};
 use hq_core::{Error, Result};
-use tauri::State;
+use tauri::{AppHandle, Runtime, State};
 
-use super::app::blocking;
+use super::blocking;
+use crate::jobs;
 
 #[tauri::command]
 pub async fn vaults_list(hq: State<'_, Arc<Hq>>) -> Result<Vec<VaultInfo>> {
@@ -16,27 +17,42 @@ pub async fn vaults_list(hq: State<'_, Arc<Hq>>) -> Result<Vec<VaultInfo>> {
 }
 
 #[tauri::command]
-pub async fn vault_add(hq: State<'_, Arc<Hq>>, path: String) -> Result<VaultInfo> {
-    blocking(&hq, move |hq| hq.vault_add(&path)).await
+pub async fn vault_add<R: Runtime>(
+    app: AppHandle<R>,
+    hq: State<'_, Arc<Hq>>,
+    path: String,
+) -> Result<VaultInfo> {
+    let v = blocking(&hq, move |hq| hq.vault_add(&path)).await?;
+    jobs::restart(&app);
+    Ok(v)
 }
 
 #[tauri::command]
-pub async fn vault_create(
+pub async fn vault_create<R: Runtime>(
+    app: AppHandle<R>,
     hq: State<'_, Arc<Hq>>,
     path: String,
     name: String,
     layout: Option<VaultLayout>,
 ) -> Result<VaultInfo> {
-    blocking(&hq, move |hq| {
+    let v = blocking(&hq, move |hq| {
         hq.vault_create(&path, &name, layout.unwrap_or_default())
     })
-    .await
+    .await?;
+    jobs::restart(&app);
+    Ok(v)
 }
 
 /// Forget a vault; its folder is left as it is.
 #[tauri::command]
-pub async fn vault_remove(hq: State<'_, Arc<Hq>>, id: String) -> Result<Vec<VaultInfo>> {
-    blocking(&hq, move |hq| hq.vault_remove(&id)).await
+pub async fn vault_remove<R: Runtime>(
+    app: AppHandle<R>,
+    hq: State<'_, Arc<Hq>>,
+    id: String,
+) -> Result<Vec<VaultInfo>> {
+    let v = blocking(&hq, move |hq| hq.vault_remove(&id)).await?;
+    jobs::restart(&app);
+    Ok(v)
 }
 
 #[tauri::command]

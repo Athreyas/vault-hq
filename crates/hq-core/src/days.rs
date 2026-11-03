@@ -5,9 +5,9 @@ use std::collections::BTreeMap;
 
 use chrono::{Datelike, NaiveDate};
 
-use crate::capture;
 use crate::error::{Error, Result};
 use crate::frontmatter;
+use crate::locks;
 use crate::types::{note_id, AgentLogLine, Day, DaySection, NoteId, NoteRef, Phase, TaskLine};
 use crate::vault::checkboxes::{self, Checkbox};
 use crate::vault::registry::Snapshot;
@@ -101,7 +101,15 @@ fn agent_log(lines: &[String], vault_name: &str) -> Vec<AgentLogLine> {
                 Some(t) => text[t.len()..].trim(),
                 None => text,
             };
+            // `who · text`: the writer is one word before the middle dot
+            let (who, rest) = match rest.split_once(" · ") {
+                Some((w, r)) if !w.is_empty() && !w.contains(char::is_whitespace) => {
+                    (Some(w.to_string()), r.trim())
+                }
+                _ => (None, rest),
+            };
             AgentLogLine {
+                who,
                 links: crate::notes::links(rest)
                     .into_iter()
                     .filter(|l| l.wiki)
@@ -298,7 +306,7 @@ pub fn log(
     let rel = layout::daily_rel(&valid_date(date)?);
     let path = vault.resolve_rel(&rel)?;
     let line = format!("- {hhmm} {who} · {text}");
-    capture::edit_or_create(&path, |cur| {
+    locks::edit_or_create(&path, |cur| {
         let base = if cur.is_empty() {
             new_daily(date)
         } else {
@@ -388,7 +396,8 @@ mod tests {
         assert_eq!(d.human[1].lines, vec!["Wrote the plan"]);
         assert_eq!(d.agent_log.len(), 2);
         assert_eq!(d.agent_log[0].time.as_deref(), Some("09:10"));
-        assert_eq!(d.agent_log[0].text, "claude · Filed [[garden]] notes");
+        assert_eq!(d.agent_log[0].who.as_deref(), Some("claude"));
+        assert_eq!(d.agent_log[0].text, "Filed [[garden]] notes");
         assert_eq!(d.agent_log[0].links, vec!["garden"]);
         assert_eq!(d.completed.len(), 1);
         assert_eq!(d.due_tasks, 1);

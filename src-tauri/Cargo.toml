@@ -18,3 +18,7 @@ tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-autostart = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"

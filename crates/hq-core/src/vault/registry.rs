@@ -33,6 +33,8 @@ pub struct Registry {
     vaults: Vec<Vault>,
     primary: Option<String>,
     problems: Vec<String>,
+    /// Entries refused on purpose (blocked names): id -> why, so a lookup says Denied.
+    refused: HashMap<String, String>,
     cache: Mutex<Cache>,
 }
 
@@ -42,13 +44,19 @@ impl Registry {
     pub fn load(settings: &Settings) -> Registry {
         let mut vaults: Vec<Vault> = Vec::new();
         let mut problems = Vec::new();
+        let mut refused = HashMap::new();
         for entry in &settings.vaults {
             match open_checked(settings, Path::new(&entry.path)) {
                 Ok(v) if vaults.iter().any(|x| x.id == v.id) => {
                     problems.push(format!("{}: listed twice", entry.name));
                 }
                 Ok(v) => vaults.push(v),
-                Err(e) => problems.push(format!("{}: {e}", entry.name)),
+                Err(e) => {
+                    if let Error::Denied(why) = &e {
+                        refused.insert(entry.id.clone(), why.clone());
+                    }
+                    problems.push(format!("{}: {e}", entry.name));
+                }
             }
         }
         let primary = settings
@@ -60,6 +68,7 @@ impl Registry {
             vaults,
             primary,
             problems,
+            refused,
             cache: Mutex::new(Cache::default()),
         }
     }
@@ -80,7 +89,10 @@ impl Registry {
         self.vaults
             .iter()
             .find(|v| v.id == id)
-            .ok_or_else(|| Error::NotFound(format!("No vault with id {id} is open.")))
+            .ok_or_else(|| match self.refused.get(id) {
+                Some(why) => Error::Denied(why.clone()),
+                None => Error::NotFound(format!("No vault with id {id} is open.")),
+            })
     }
 
     /// Where captures and new notes go when the caller names no vault.
@@ -452,6 +464,7 @@ mod tests {
         let reg = Registry::load(&open);
         assert!(reg.vaults().is_empty());
         assert_eq!(reg.problems().len(), 1);
+        assert!(matches!(reg.get(&open.vaults[0].id), Err(Error::Denied(_))));
     }
 
     #[test]

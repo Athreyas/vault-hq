@@ -16,6 +16,7 @@ libc = "0.2"
 walkdir = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
+ureq = { version = "3", default-features = false, features = ["json"] }
 
 [dev-dependencies]
 tempfile = "3"

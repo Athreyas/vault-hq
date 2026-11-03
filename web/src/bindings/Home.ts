@@ -2,4 +2,8 @@
 import type { Card } from "./Card";
 import type { Phase } from "./Phase";
 
-export type Home = { date: string, phase: Phase, greeting: string, cards: Array<Card>, };
+export type Home = { date: string, phase: Phase, greeting: string, cards: Array<Card>, 
+/**
+ * Questions worth asking now, for the Ask bar.
+ */
+suggestions: Array<string>, };

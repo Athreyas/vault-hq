@@ -123,16 +123,33 @@ pub fn create_new(path: &Path, text: &str) -> Result<()> {
     Ok(())
 }
 
-/// Append under the lock, creating the file with `header` first if it is missing.
-pub fn append(path: &Path, header: impl FnOnce() -> String, text: &str) -> Result<()> {
-    if !path.exists() {
-        match create_new(path, &header()) {
-            Ok(()) | Err(Error::Invalid(_)) => {} // someone else created it first: fine
-            Err(e) => return Err(e),
-        }
+/// Edit `path` under its lock, creating it empty first when missing; `edit` sees `""` for
+/// a new file. Never writes outside the lock: a new file is created empty (no truncate,
+/// so a file another writer just made is opened as it is) and filled under `flock`.
+pub fn edit_or_create(path: &Path, edit: impl FnOnce(&str) -> Result<String>) -> Result<String> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
     }
-    guarded_edit(path, None, |cur| {
-        let mut s = cur.to_string();
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)?;
+    guarded_edit(path, None, edit)
+}
+
+/// Append under the lock, starting the file with `header` when it is new or empty.
+///
+/// The header is written in the same locked edit as the line. (Writing it with
+/// `create_new` before taking the lock let a second writer append in between, and the
+/// header, written at offset 0, then overwrote that writer's line.)
+pub fn append(path: &Path, header: impl FnOnce() -> String, text: &str) -> Result<()> {
+    edit_or_create(path, |cur| {
+        let mut s = if cur.is_empty() {
+            header()
+        } else {
+            cur.to_string()
+        };
         if !s.is_empty() && !s.ends_with('\n') {
             s.push('\n');
         }
@@ -175,6 +192,34 @@ mod tests {
         guarded_edit(&p, None, |t| Ok(format!("{t}b\n"))).unwrap();
         assert_eq!(std::fs::metadata(&p).unwrap().ino(), ino);
         assert_eq!(std::fs::read_to_string(&p).unwrap(), "a\nb\n");
+    }
+
+    #[test]
+    fn racing_first_appends_lose_no_line() {
+        // regression: the header of a new file must never land on another writer's line
+        for round in 0..20 {
+            let dir = tempfile::tempdir().unwrap();
+            let p = dir.path().join(format!("inbox/{round}.md"));
+            let threads: Vec<_> = (0..6)
+                .map(|i| {
+                    let p = p.clone();
+                    std::thread::spawn(move || {
+                        append(&p, || "# Head\n".into(), &format!("- line {i}")).unwrap()
+                    })
+                })
+                .collect();
+            for t in threads {
+                t.join().unwrap();
+            }
+            let text = std::fs::read_to_string(&p).unwrap();
+            assert!(text.starts_with("# Head\n"), "{text}");
+            assert_eq!(text.matches("# Head").count(), 1, "{text}");
+            assert_eq!(
+                text.lines().filter(|l| l.starts_with("- line")).count(),
+                6,
+                "{text}"
+            );
+        }
     }
 
     #[test]

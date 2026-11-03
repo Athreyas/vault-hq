@@ -15,7 +15,7 @@ folder?: string,
 /**
  * A template's name (`_templates/<name>.md`) or its vault-relative path.
  */
-template?: string, type?: string, tags: Array<string>, 
+template?: string, type?: string, tags?: Array<string>, 
 /**
  * Text after the heading (a blank note) or after the template's text.
  */

@@ -366,6 +366,22 @@ pub fn home(snaps: &[Snapshot], date: &str, today: &str, phase: Phase, needs: &[
             .cmp(&a.updated)
             .then(b.open_tasks.len().cmp(&a.open_tasks.len()))
     });
+    let mut suggestions: Vec<String> = active
+        .iter()
+        .take(3)
+        .map(|p| format!("What is left on {}?", p.title))
+        .collect();
+    if !d.agent_log.is_empty() {
+        suggestions.push(if is_today {
+            "What did the agents do today?".into()
+        } else {
+            format!("What did the agents do on {date}?")
+        });
+    }
+    if let Some(n) = needs.first() {
+        let short: String = n.title.chars().take(70).collect();
+        suggestions.push(format!("Why is \"{}\" waiting on me?", short.trim()));
+    }
     for p in active.into_iter().take(6) {
         let id = note_id(&p.vault.id, &p.rel);
         let mut c = card(
@@ -431,6 +447,7 @@ pub fn home(snaps: &[Snapshot], date: &str, today: &str, phase: Phase, needs: &[
             date.into()
         },
         cards,
+        suggestions,
     }
 }
 
@@ -502,6 +519,7 @@ mod tests {
         );
         let h = home(&[sa, sb], date, date, Phase::Day, &[]);
         assert_eq!(h.greeting, "Today");
+        assert_eq!(h.suggestions, vec!["What is left on Garden?"]);
         let kinds: Vec<_> = h.cards.iter().map(|c| c.kind.as_str()).collect();
         assert_eq!(
             kinds,

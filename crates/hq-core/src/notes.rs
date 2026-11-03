@@ -630,33 +630,25 @@ pub fn source(vault: &Vault, rel: &str) -> Result<Source> {
     })
 }
 
-/// Replace a note's text if it still hashes to `base`. A conflict is not an error here:
-/// the editor gets what is on disk to compare with. `updated:` is bumped when the text
-/// changed.
+/// Replace a note's text if it still hashes to `base`; otherwise nothing is written and
+/// the `Conflict` error carries what is on disk to compare with. `updated:` is bumped when
+/// the text changed.
 pub fn save(vault: &Vault, rel: &str, text: &str, base: &str, today: &str) -> Result<SaveResult> {
     let path = note_path(vault, rel)?;
     let mut written = String::new();
-    let res = locks::guarded_edit(&path, Some(base), |cur| {
+    let hash = locks::guarded_edit(&path, Some(base), |cur| {
         written = if text == cur {
             cur.to_string()
         } else {
             frontmatter::bump_updated(text, today)
         };
         Ok(written.clone())
-    });
-    match res {
-        Ok(hash) => Ok(SaveResult {
-            conflict: false,
-            text: written,
-            hash,
-        }),
-        Err(Error::Conflict { current }) => Ok(SaveResult {
-            conflict: true,
-            text: current.text,
-            hash: current.hash,
-        }),
-        Err(e) => Err(e),
-    }
+    })?;
+    Ok(SaveResult {
+        id: note_id(&vault.id, rel),
+        text: written,
+        hash,
+    })
 }
 
 // ---- create -----------------------------------------------------------------------------------
@@ -744,7 +736,7 @@ pub fn render_new(vault: &Vault, input: &NoteInput, today: &str) -> Result<Strin
         .map(str::trim)
         .filter(|a| !a.is_empty())
         .unwrap_or("human");
-    let tags = clean_tags(&input.tags);
+    let tags = clean_tags(input.tags.as_deref().unwrap_or_default());
     let body = input.body.as_deref().unwrap_or("").trim_end();
 
     if let Some(t) = input.template.as_deref().filter(|t| !t.trim().is_empty()) {
@@ -1204,11 +1196,11 @@ mod tests {
             "2026-11-02",
         )
         .unwrap();
-        assert!(!r.conflict);
         assert_eq!(r.text, "---\nupdated: 2026-11-02\n---\nnew\n");
-        let stale = save(&s.vault, "n.md", "lost\n", &src.hash, "2026-11-02").unwrap();
-        assert!(stale.conflict);
-        assert_eq!(stale.text, r.text);
+        match save(&s.vault, "n.md", "lost\n", &src.hash, "2026-11-02") {
+            Err(Error::Conflict { current }) => assert_eq!(current.text, r.text),
+            other => panic!("expected a conflict, got {other:?}"),
+        }
         assert!(matches!(
             save(&s.vault, "missing.md", "x", "h", "d"),
             Err(Error::NotFound(_))
@@ -1225,7 +1217,7 @@ mod tests {
         let input = NoteInput {
             title: "Plan: the garden".into(),
             note_type: Some("project".into()),
-            tags: vec!["#garden".into()],
+            tags: Some(vec!["#garden".into()]),
             ..Default::default()
         };
         let rel = create(&s.vault, &input, "2026-11-02").unwrap();

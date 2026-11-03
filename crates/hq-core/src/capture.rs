@@ -41,51 +41,17 @@ pub fn header(date: &str) -> String {
     )
 }
 
-/// Edit `path` under its lock, creating it empty first when missing; `edit` sees `""` for
-/// a new file and writes its first text under the same lock.
-///
-/// Not `locks::append`: it writes a new file's header with `create_new` outside the lock,
-/// so a second writer can append between the create and the header write, and the header
-/// (written at offset 0) then overwrites that line. Creating the file empty and filling it
-/// under `flock` leaves no such gap.
-pub fn edit_or_create(path: &Path, edit: impl FnOnce(&str) -> Result<String>) -> Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    // create(true) without truncate: an existing file, or one just made by another writer,
-    // is opened as it is
-    std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(path)?;
-    locks::guarded_edit(path, None, edit)?;
-    Ok(())
-}
-
-/// Append a line, starting the note with `header` when it is new or empty, and bump
-/// `updated:`, all in one locked edit.
+/// Append a line with `locks::append` (which starts a new note with `header` under the
+/// lock), then bump `updated:`.
 pub fn append_line(
     path: &Path,
     header: impl FnOnce() -> String,
     line: &str,
     today: &str,
 ) -> Result<()> {
-    edit_or_create(path, |cur| {
-        let mut s = if cur.is_empty() {
-            header()
-        } else {
-            cur.to_string()
-        };
-        if !s.is_empty() && !s.ends_with('\n') {
-            s.push('\n');
-        }
-        s.push_str(line);
-        if !line.ends_with('\n') {
-            s.push('\n');
-        }
-        Ok(frontmatter::bump_updated(&s, today))
-    })
+    locks::append(path, header, line)?;
+    locks::guarded_edit(path, None, |cur| Ok(frontmatter::bump_updated(cur, today)))?;
+    Ok(())
 }
 
 /// Append `- HH:MM text` to today's capture note in `vault`.
@@ -125,33 +91,6 @@ mod tests {
             CaptureKind::Task
         );
         assert_eq!(classify("ftp://x", None), CaptureKind::Note);
-    }
-
-    #[test]
-    fn racing_first_writers_lose_no_line() {
-        // the header of a brand-new note must never land on top of another writer's line
-        for round in 0..20 {
-            let dir = tempfile::tempdir().unwrap();
-            let path = dir.path().join(format!("inbox/{round}.md"));
-            let threads: Vec<_> = (0..6)
-                .map(|i| {
-                    let p = path.clone();
-                    std::thread::spawn(move || {
-                        append_line(&p, || "# Head\n".into(), &format!("- line {i}"), "d").unwrap()
-                    })
-                })
-                .collect();
-            for t in threads {
-                t.join().unwrap();
-            }
-            let text = std::fs::read_to_string(&path).unwrap();
-            assert!(text.starts_with("# Head\n"), "{text}");
-            assert_eq!(
-                text.lines().filter(|l| l.starts_with("- line")).count(),
-                6,
-                "{text}"
-            );
-        }
     }
 
     #[test]

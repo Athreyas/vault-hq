@@ -9,7 +9,7 @@ use hq_core::types::{
 use hq_core::Result;
 use tauri::State;
 
-use super::app::blocking;
+use super::blocking;
 
 /// `kind`: `note` (default), `task`, `bookmark`; a lone URL is a bookmark when absent.
 #[tauri::command]

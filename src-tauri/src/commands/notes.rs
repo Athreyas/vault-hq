@@ -9,7 +9,7 @@ use hq_core::types::{
 use hq_core::Result;
 use tauri::State;
 
-use super::app::blocking;
+use super::blocking;
 
 #[tauri::command]
 pub async fn notes_list(

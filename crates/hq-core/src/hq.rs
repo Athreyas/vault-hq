@@ -3,7 +3,8 @@
 //! and text, never paths.
 //!
 //! It is `Send + Sync` and every method takes `&self`, so the app keeps it in an `Arc` as
-//! Tauri state. Other streams' functions take `&Vault`, `&[Snapshot]`, `&Settings` or a
+//! Tauri state. It is the only writer of settings.json in the app: the shell's settings
+//! commands go through `change_settings` too. Other streams' functions take `&Vault`, `&[Snapshot]`, `&Settings` or a
 //! cache dir: get those from `vault()`, `snapshots()`, `settings()` and `cache_dir()`, and
 //! call `invalidate()` after writing to a vault outside these methods.
 
@@ -15,10 +16,10 @@ use crate::settings::{Settings, Store};
 use crate::types::{
     note_id, split_note_id, CaptureKind, CaptureResult, Day, DecideResult, Home, InboxItem,
     MoveResult, Need, NoteFilter, NoteId, NoteInput, NoteSummary, NoteView, SaveResult, Source,
-    Status, TemplateInfo, Tips, VaultCandidate, VaultInfo, VaultLayout,
+    TemplateInfo, VaultCandidate, VaultInfo, VaultLayout,
 };
 use crate::vault::registry::{self, Registry, Snapshot};
-use crate::vault::{checkboxes, watch, Vault};
+use crate::vault::{watch, Vault};
 use crate::{capture, days, home, inbox, needs, notes, util};
 
 struct State {
@@ -31,11 +32,10 @@ pub struct Hq {
     support_dir: PathBuf,
     cache_dir: PathBuf,
     state: RwLock<State>,
+    /// Set when settings.json could not be read: HQ runs on defaults and refuses to save,
+    /// so the user's file is never overwritten by a reset.
+    broken: Option<String>,
 }
-
-/// Settings keys that only the vault commands may change, so the blocked-name check and
-/// the marker handling can't be bypassed by a patch.
-const VAULT_KEYS: &[&str] = &["vaults", "primaryVault"];
 
 impl Hq {
     /// Load settings from `support_dir` and open the vaults they list.
@@ -54,7 +54,31 @@ impl Hq {
                 settings,
                 registry: Arc::new(reg),
             }),
+            broken: None,
         })
+    }
+
+    /// Defaults in memory, no vaults, saves refused: what the app runs on when `open`
+    /// failed because settings.json doesn't parse.
+    pub fn degraded(support_dir: &Path, cache_dir: &Path, why: &Error) -> Hq {
+        let settings = Settings::default();
+        Hq {
+            store: Store::new(support_dir),
+            support_dir: support_dir.to_path_buf(),
+            cache_dir: cache_dir.to_path_buf(),
+            state: RwLock::new(State {
+                registry: Arc::new(Registry::load(&settings)),
+                settings,
+            }),
+            broken: Some(format!(
+                "Settings could not be read ({why}). HQ is running on defaults and will not save until settings.json is fixed or removed."
+            )),
+        }
+    }
+
+    /// Why settings can't be saved, when they couldn't be read at startup.
+    pub fn broken(&self) -> Option<&str> {
+        self.broken.as_deref()
     }
 
     fn read(&self) -> RwLockReadGuard<'_, State> {
@@ -80,16 +104,19 @@ impl Hq {
         self.read().settings.clone()
     }
 
-    /// Change settings with `f`, save them, and reopen the vaults when `reload` (a vault
-    /// was added or removed, a name was blocked). Nothing changes if `f` or the save fails.
-    pub fn change_settings<T>(
-        &self,
-        reload: bool,
-        f: impl FnOnce(&mut Settings) -> Result<T>,
-    ) -> Result<T> {
+    /// Change settings with `f` on a copy, save it, and only then make it current, so a
+    /// failed `f` or save changes nothing. The vaults are reopened when the vault list,
+    /// the primary or the blocked names changed.
+    pub fn change_settings<T>(&self, f: impl FnOnce(&mut Settings) -> Result<T>) -> Result<T> {
+        if let Some(why) = &self.broken {
+            return Err(Error::Unavailable(why.clone()));
+        }
         let mut st = self.write();
         let mut next = st.settings.clone();
         let out = f(&mut next)?;
+        let reload = next.vaults != st.settings.vaults
+            || next.primary_vault != st.settings.primary_vault
+            || next.blocked_vault_names != st.settings.blocked_vault_names;
         let reg = reload.then(|| Registry::load(&next));
         if let Some(reg) = &reg {
             registry::reconcile(&mut next, reg);
@@ -100,28 +127,6 @@ impl Hq {
             st.registry = Arc::new(reg);
         }
         Ok(out)
-    }
-
-    /// `settings_update(patch)`: top-level keys of `patch` replace the current ones.
-    pub fn settings_update(&self, patch: serde_json::Value) -> Result<Settings> {
-        let serde_json::Value::Object(patch) = patch else {
-            return Err(Error::Invalid("A settings change is a JSON object.".into()));
-        };
-        if let Some(k) = patch.keys().find(|k| VAULT_KEYS.contains(&k.as_str())) {
-            return Err(Error::Invalid(format!(
-                "\"{k}\" changes through the vault commands, not settings_update."
-            )));
-        }
-        let reload = patch.contains_key("blockedVaultNames");
-        self.change_settings(reload, |s| {
-            let mut v = serde_json::to_value(&*s)?;
-            if let serde_json::Value::Object(map) = &mut v {
-                map.extend(patch);
-            }
-            *s = serde_json::from_value(v)
-                .map_err(|e| Error::Invalid(format!("That settings change doesn't fit: {e}")))?;
-            Ok(s.clone())
-        })
     }
 
     // ---- vaults --------------------------------------------------------------------------------
@@ -164,23 +169,22 @@ impl Hq {
     }
 
     pub fn vault_add(&self, path: &str) -> Result<VaultInfo> {
-        let v = self.change_settings(true, |s| registry::add(s, Path::new(path)))?;
+        let v = self.change_settings(|s| registry::add(s, Path::new(path)))?;
         self.info_of(&v.id)
     }
 
     pub fn vault_create(&self, path: &str, name: &str, layout: VaultLayout) -> Result<VaultInfo> {
-        let v =
-            self.change_settings(true, |s| registry::create(s, Path::new(path), name, layout))?;
+        let v = self.change_settings(|s| registry::create(s, Path::new(path), name, layout))?;
         self.info_of(&v.id)
     }
 
     pub fn vault_remove(&self, id: &str) -> Result<Vec<VaultInfo>> {
-        self.change_settings(true, |s| registry::remove(s, id))?;
+        self.change_settings(|s| registry::remove(s, id))?;
         Ok(self.vaults())
     }
 
     pub fn vault_set_primary(&self, id: &str) -> Result<Vec<VaultInfo>> {
-        self.change_settings(true, |s| registry::set_primary(s, id))?;
+        self.change_settings(|s| registry::set_primary(s, id))?;
         Ok(self.vaults())
     }
 
@@ -197,12 +201,17 @@ impl Hq {
         Ok((self.vault(vid)?, rel.to_string()))
     }
 
-    /// The path `reveal(what)` shows in Finder: a note id, a vault id, `settings` or `cache`.
+    /// The path `reveal(what)` shows in Finder: `settings`, `support`, `cache`,
+    /// `vault:<id>` (or a bare vault id), or a note id.
     pub fn reveal_target(&self, what: &str) -> Result<PathBuf> {
         match what {
             "settings" => return Ok(self.support_dir.join("settings.json")),
+            "support" => return Ok(self.support_dir.clone()),
             "cache" => return Ok(self.cache_dir.clone()),
             _ => {}
+        }
+        if let Some(id) = what.strip_prefix("vault:") {
+            return Ok(self.vault(id)?.root);
         }
         if let Ok(v) = self.vault(what) {
             return Ok(v.root);
@@ -212,11 +221,12 @@ impl Hq {
     }
 
     /// Watch every open vault. A change drops that vault's cached scan, then reaches
-    /// `on_change(vault_id, rels)`. Restart the watchers after a vault is added or removed.
+    /// `on_change(vault_id, rels)`. One result per vault, so one that can't be watched
+    /// doesn't stop the others. Restart the watchers after the open vaults change.
     pub fn watch(
         self: &Arc<Self>,
         on_change: impl Fn(&str, Vec<String>) + Send + Sync + 'static,
-    ) -> Result<Vec<watch::Watcher>> {
+    ) -> Vec<Result<watch::Watcher>> {
         let on_change = Arc::new(on_change);
         let reg = self.registry();
         reg.vaults()
@@ -233,67 +243,6 @@ impl Hq {
                 })
             })
             .collect()
-    }
-
-    // ---- status ----------------------------------------------------------------------------------
-
-    pub fn status(&self) -> Status {
-        let today = util::today();
-        let reg = self.registry();
-        let snaps = reg.snapshots();
-        let queue = self.needs();
-        let open: Vec<_> = snaps
-            .iter()
-            .flat_map(|s| checkboxes::all(&s.scan.notes))
-            .filter(|c| c.is_open())
-            .collect();
-        let d = days::day(&snaps, &today);
-        let mut active: Vec<home::Project> = snaps
-            .iter()
-            .flat_map(home::projects)
-            .filter(|p| p.status == "active")
-            .collect();
-        active.sort_by(|a, b| b.updated.cmp(&a.updated));
-        let mut suggestions: Vec<String> = active
-            .iter()
-            .take(3)
-            .map(|p| format!("What is left on {}?", p.title))
-            .collect();
-        if !d.agent_log.is_empty() {
-            suggestions.push("What did the agents do today?".into());
-        }
-        if let Some(n) = queue.first() {
-            let short: String = n.title.chars().take(70).collect();
-            suggestions.push(format!("Why is \"{}\" waiting on me?", short.trim()));
-        }
-        Status {
-            version: env!("CARGO_PKG_VERSION").into(),
-            vaults: reg.info(),
-            primary: reg.primary_id().map(str::to_string),
-            problems: reg.problems().to_vec(),
-            unreadable: snaps
-                .iter()
-                .flat_map(|s| {
-                    s.scan
-                        .unreadable
-                        .iter()
-                        .map(move |r| format!("{}: {r}", s.vault.name))
-                })
-                .collect(),
-            needs: queue.len() as u32,
-            tips: Tips {
-                needs: queue.iter().take(3).map(|n| n.title.clone()).collect(),
-                tasks_open: open.len() as u32,
-                tasks_overdue: open
-                    .iter()
-                    .filter(|c| c.due.as_deref().is_some_and(|d| d < today.as_str()))
-                    .count() as u32,
-                inbox: inbox::items(&snaps, &today).len() as u32,
-                today: (d.agent_log.len() + d.completed.len()) as u32,
-                notes: snaps.iter().map(|s| s.scan.notes.len() as u32).sum(),
-                suggestions,
-            },
-        }
     }
 
     // ---- notes -----------------------------------------------------------------------------------
@@ -316,9 +265,7 @@ impl Hq {
     pub fn note_save(&self, id: &str, text: &str, base: &str) -> Result<SaveResult> {
         let (v, rel) = self.locate(id)?;
         let r = notes::save(&v, &rel, text, base, &util::today())?;
-        if !r.conflict {
-            self.invalidate(Some(&v.id));
-        }
+        self.invalidate(Some(&v.id));
         Ok(r)
     }
 
@@ -426,7 +373,7 @@ impl Hq {
         );
         self.invalidate(None);
         let d = d?;
-        self.change_settings(false, |s| {
+        self.change_settings(|s| {
             // past snoozes do nothing; drop them so settings don't grow forever
             s.snoozed.retain(|_, until| until.as_str() > today.as_str());
             if let Some((id, until)) = &d.snooze {
@@ -455,22 +402,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn settings_patch_rules() {
+    fn settings_are_saved_and_degraded_refuses() {
         let support = tempfile::tempdir().unwrap();
         let cache = tempfile::tempdir().unwrap();
         let hq = Hq::open(support.path(), cache.path()).unwrap();
-        let s = hq
-            .settings_update(serde_json::json!({ "theme": "light", "futureThing": 1 }))
-            .unwrap();
-        assert_eq!(s.theme, crate::settings::Theme::Light);
-        assert!(hq
-            .settings_update(serde_json::json!({ "vaults": [] }))
-            .is_err());
-        assert!(hq
-            .settings_update(serde_json::json!({ "theme": 5 }))
-            .is_err());
-        assert!(hq.settings_update(serde_json::json!([1])).is_err());
-        // saved, and read back by a new Hq
+        hq.change_settings(|s| {
+            s.theme = crate::settings::Theme::Light;
+            Ok(())
+        })
+        .unwrap();
+        // a failed change leaves memory and disk alone
+        let r: Result<()> = hq.change_settings(|s| {
+            s.theme = crate::settings::Theme::Dark;
+            Err(Error::Invalid("no".into()))
+        });
+        assert!(r.is_err());
+        assert_eq!(hq.settings().theme, crate::settings::Theme::Light);
         let again = Hq::open(support.path(), cache.path()).unwrap();
         assert_eq!(again.settings().theme, crate::settings::Theme::Light);
         assert!(matches!(again.primary(), Err(Error::Unavailable(_))));
@@ -478,6 +425,23 @@ mod tests {
             again.capture("x", None, None),
             Err(Error::Unavailable(_))
         ));
+        assert_eq!(
+            again.reveal_target("support").unwrap(),
+            support.path().to_path_buf()
+        );
+
+        std::fs::write(support.path().join("settings.json"), "{ not json").unwrap();
+        let e = match Hq::open(support.path(), cache.path()) {
+            Err(e) => e,
+            Ok(_) => panic!("must not open"),
+        };
+        let d = Hq::degraded(support.path(), cache.path(), &e);
+        assert!(d.broken().is_some());
+        assert!(d.change_settings(|_| Ok(())).is_err());
+        assert_eq!(
+            std::fs::read_to_string(support.path().join("settings.json")).unwrap(),
+            "{ not json"
+        );
     }
 
     #[test]

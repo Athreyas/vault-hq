@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import type { Home as HomeData } from "../../../server/types.ts";
-import { addDays, iso, parseDate, useData } from "../api.ts";
+import { addDays, api, cardHref, iso, parseDate, useCall } from "../api.ts";
+import Problem from "./Problem.tsx";
 import { RichLine } from "./Rich.tsx";
 
 // Every panel at once instead of one card at a time. Arrow keys move between panels,
-// Enter follows the panel's action.
-export default function Home({ date, onAsk, suggestions }: { date: string; onAsk: (q: string, mode?: "ask" | "search") => void; suggestions: string[] }) {
+// Enter follows the panel's action. The Ask bar widens while it has focus.
+export default function Home({ date, onAsk }: { date: string; onAsk: (q: string, mode?: "ask" | "search") => void }) {
   const today = iso(new Date());
-  const { data, error } = useData<HomeData>(`/api/home?date=${date}`, 120_000);
+  const { data, error } = useCall(() => api.home(date), date, { refreshMs: 120_000 });
   const [q, setQ] = useState("");
   const grid = useRef<HTMLDivElement>(null);
   const to = (d: string) => (window.location.hash = d === today ? "#/home" : `#/home/${d}`);
+  const suggestions = data?.suggestions ?? [];
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -32,7 +33,7 @@ export default function Home({ date, onAsk, suggestions }: { date: string; onAsk
   return (
     <section className="home">
       <form
-        className="prompt is-big"
+        className="prompt is-big home-ask"
         onSubmit={(e) => {
           e.preventDefault();
           if (q.trim().length >= 3) onAsk(q.trim(), "ask");
@@ -42,7 +43,23 @@ export default function Home({ date, onAsk, suggestions }: { date: string; onAsk
         <label className="sr-only" htmlFor="home-q">
           Ask the vault
         </label>
-        <input id="home-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="ask the vault, or press Ctrl K for everything else" autoComplete="off" spellCheck={false} />
+        <input
+          id="home-q"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              setQ("");
+              e.currentTarget.blur();
+            } else if (e.key === "Enter" && e.shiftKey && q.trim().length >= 3) {
+              e.preventDefault();
+              onAsk(q.trim(), "search");
+            }
+          }}
+          placeholder="ask the vault, or ⌘K for everything else"
+          autoComplete="off"
+          spellCheck={false}
+        />
         <button className="button is-primary" disabled={q.trim().length < 3}>
           ask
         </button>
@@ -81,52 +98,49 @@ export default function Home({ date, onAsk, suggestions }: { date: string; onAsk
         <span className="home-weekday">{parseDate(date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</span>
       </div>
 
-      {error && <p className="empty">Could not load the home view: {error}</p>}
+      {error && <Problem error={error} what="the home view" />}
       {!data && !error && <p className="empty">Reading the vault…</p>}
       <div className="panels" ref={grid}>
-        {data?.cards.map((c) => {
-          const external = c.action?.href.startsWith("http");
-          return (
-            <article
-              key={c.id}
-              className={`panel kind-${c.kind}`}
-              tabIndex={0}
-              aria-label={`${c.title}. ${c.kicker}`}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && c.action && e.target === e.currentTarget) window.location.href = c.action.href;
-              }}
-            >
-              <header className="panel-head">
-                <h2 className="panel-title" title={c.title}>
-                  {c.title}
-                </h2>
-                <span className="panel-kicker" title={c.kicker}>
-                  {c.kicker}
-                </span>
-              </header>
-              {c.lines.length > 0 && (
-                <ul className="panel-lines">
-                  {c.lines.map((l, j) => (
-                    <li key={j} title={l.replace(/\[\[|\]\]/g, "")}>
-                      <RichLine text={l} />
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {c.progress !== null && (
-                <div className="meter" role="meter" aria-valuenow={c.progress} aria-valuemin={0} aria-valuemax={100} aria-label="Progress">
-                  <span style={{ width: `${c.progress}%` }} />
-                  <b>{c.progress}%</b>
-                </div>
-              )}
-              {c.action && (
-                <a className="panel-action" href={c.action.href} target={external ? "_blank" : undefined} rel="noreferrer">
-                  ⏎ {c.action.label.toLowerCase()}
-                </a>
-              )}
-            </article>
-          );
-        })}
+        {data?.cards.map((c) => (
+          <article
+            key={c.id}
+            className={`panel kind-${c.kind}`}
+            tabIndex={0}
+            aria-label={`${c.title}. ${c.kicker}`}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && c.action && e.target === e.currentTarget) window.location.href = cardHref(c.action);
+            }}
+          >
+            <header className="panel-head">
+              <h2 className="panel-title" title={c.title}>
+                {c.title}
+              </h2>
+              <span className="panel-kicker" title={c.kicker}>
+                {c.kicker}
+              </span>
+            </header>
+            {c.lines.length > 0 && (
+              <ul className="panel-lines">
+                {c.lines.map((l, j) => (
+                  <li key={j} title={l.replace(/\[\[|\]\]/g, "")}>
+                    <RichLine text={l} />
+                  </li>
+                ))}
+              </ul>
+            )}
+            {c.progress !== null && (
+              <div className="meter" role="meter" aria-valuenow={c.progress} aria-valuemin={0} aria-valuemax={100} aria-label="Progress">
+                <span style={{ width: `${c.progress}%` }} />
+                <b>{c.progress}%</b>
+              </div>
+            )}
+            {c.action && (
+              <a className="panel-action" href={cardHref(c.action)}>
+                ⏎ {c.action.label.toLowerCase()}
+              </a>
+            )}
+          </article>
+        ))}
       </div>
     </section>
   );

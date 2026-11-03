@@ -14,6 +14,14 @@ fn write(root: &Path, rel: &str, text: &str) {
     std::fs::write(p, text).unwrap();
 }
 
+fn block(hq: &Hq, names: &[&str]) {
+    hq.change_settings(|s| {
+        s.blocked_vault_names = names.iter().map(|n| n.to_string()).collect();
+        Ok(())
+    })
+    .unwrap();
+}
+
 fn read(root: &Path, rel: &str) -> String {
     std::fs::read_to_string(root.join(rel)).unwrap()
 }
@@ -104,12 +112,14 @@ fn guarded_save_returns_the_current_text_on_conflict() {
     let src = f.hq.note_source(&id).unwrap();
     // someone else writes in between
     std::fs::write(f.root.join("05-References/zone-map.md"), "agent edit\n").unwrap();
-    let r = f.hq.note_save(&id, "my edit\n", &src.hash).unwrap();
-    assert!(r.conflict);
-    assert_eq!(r.text, "agent edit\n");
+    let current = match f.hq.note_save(&id, "my edit\n", &src.hash) {
+        Err(Error::Conflict { current }) => current,
+        other => panic!("expected a conflict, got {other:?}"),
+    };
+    assert_eq!(current.text, "agent edit\n");
     assert_eq!(read(&f.root, "05-References/zone-map.md"), "agent edit\n");
-    let ok = f.hq.note_save(&id, "merged\n", &r.hash).unwrap();
-    assert!(!ok.conflict);
+    let ok = f.hq.note_save(&id, "merged\n", &current.hash).unwrap();
+    assert_eq!(ok.id, id);
     assert_eq!(read(&f.root, "05-References/zone-map.md"), "merged\n");
 }
 
@@ -180,8 +190,7 @@ fn blocked_vault_is_refused_before_reading() {
     let cache = tempfile::tempdir().unwrap();
     let vaults = tempfile::tempdir().unwrap();
     let hq = Hq::open(support.path(), cache.path()).unwrap();
-    hq.settings_update(serde_json::json!({ "blockedVaultNames": ["private-vault"] }))
-        .unwrap();
+    block(&hq, &["private-vault"]);
     let blocked = vaults.path().join("private-vault");
     write(&blocked, "note.md", "secret\n");
     let err = hq.vault_add(blocked.to_str().unwrap()).unwrap_err();
@@ -206,10 +215,15 @@ fn blocked_vault_is_refused_before_reading() {
     std::fs::create_dir(&ok).unwrap();
     hq.vault_add(ok.to_str().unwrap()).unwrap();
     assert_eq!(hq.vaults().len(), 1);
-    hq.settings_update(serde_json::json!({ "blockedVaultNames": ["private-vault", "fine"] }))
-        .unwrap();
+    let id = hq.settings().vaults[0].id.clone();
+    block(&hq, &["private-vault", "fine"]);
     assert!(hq.vaults().is_empty());
-    assert_eq!(hq.status().problems.len(), 1);
+    assert_eq!(hq.registry().problems().len(), 1);
+    assert_eq!(hq.vault(&id).unwrap_err().kind(), "Denied");
+    assert_eq!(
+        hq.reveal_target(&format!("vault:{id}")).unwrap_err().kind(),
+        "Denied"
+    );
 }
 
 #[test]
@@ -262,9 +276,8 @@ fn home_needs_and_decisions() {
         .any(|c| c.kind == "project" && c.title == "Garden"));
     assert!(f.hq.home(Some("not a date")).is_err());
     assert_eq!(f.hq.days("2026-11-01", 7).unwrap().len(), 7);
-    let status = f.hq.status();
-    assert_eq!(status.vaults.len(), 1);
-    assert!(status.tips.tasks_overdue >= 1);
+    assert!(home.suggestions.iter().any(|q| q.contains("Garden")));
+    assert_eq!(f.hq.vaults().len(), 1);
 }
 
 #[test]
@@ -275,6 +288,8 @@ fn watcher_invalidates_and_reports() {
         f.hq.watch(move |vault, rels| {
             let _ = tx.send((vault.to_string(), rels));
         })
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
         .unwrap();
     assert_eq!(f.hq.notes_list(&NoteFilter::default()).len(), 4);
     std::thread::sleep(std::time::Duration::from_millis(300));

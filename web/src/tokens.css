@@ -27,6 +27,10 @@
   --radius: 0;
   --line-w: 1px;
   --ease: linear;
+  /* motion: the one place anything moves is the Home ask bar opening on focus */
+  --ease-settle: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --dur-settle: 240ms;
+  --ask-rest: 640px;
 }
 
 /* dark: the default, a neutral graphite black with warm paper ink and a saffron accent */

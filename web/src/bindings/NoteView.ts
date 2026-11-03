@@ -2,7 +2,7 @@
 import type { LinkView } from "./LinkView";
 import type { NoteSummary } from "./NoteSummary";
 
-export type NoteView = { note: NoteSummary, 
+export type NoteView = { 
 /**
  * Frontmatter in file order, without `title`.
  */
@@ -10,4 +10,4 @@ props: Array<[string, string]>,
 /**
  * The body after the frontmatter, minus a leading `# <title>` the reader shows anyway.
  */
-body: string, hash: string, links: Array<LinkView>, backlinks: Array<NoteSummary>, };
+body: string, hash: string, links: Array<LinkView>, backlinks: Array<NoteSummary>, id: string, vault: string, vaultName: string, rel: string, title: string, folder: string, type: string | null, updated: string, tags: Array<string>, };
