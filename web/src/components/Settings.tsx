@@ -120,6 +120,12 @@ export default function Settings({ status, onClose, notify, onChange }: { status
                 )}
                 <p className="set-note">Agents start this as a stdio MCP server. It uses the same vaults and the same file locks as the app.</p>
               </Row>
+              <Row k="setup">
+                <button type="button" className="link-button" onClick={() => window.dispatchEvent(new Event("hq:setup"))}>
+                  run setup again
+                </button>
+                <p className="set-note">The first-run wizard: vaults, agents and their MCP connections, tasks, local AI, bookmarks. Nothing is changed without a yes.</p>
+              </Row>
               <Row k="settings">
                 <button type="button" className="link-button" onClick={() => reveal("settings")}>
                   show settings.json

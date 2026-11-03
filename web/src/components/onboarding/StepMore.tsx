@@ -1,0 +1,396 @@
+// Steps 4–6, which drive other streams' commands: Taskwarrior import (B), Ollama (C),
+// browser bookmarks (F). Each one copes with its commands not being in this build.
+
+import { useEffect, useState } from "react";
+import {
+  bookmarksEnrich,
+  bookmarksImport,
+  type BookmarkImportReport,
+  bookmarkReportLine,
+  type BrowserSource,
+  browserAllow,
+  browsersDetect,
+  message,
+  ollamaRecommend,
+  ollamaStatus,
+  type OllamaStatus,
+  type Recommendation,
+  settingsUpdate,
+  type TaskImportReport,
+  taskReportLine,
+  tasksImport,
+  unavailable,
+} from "../../api/onboarding.ts";
+import { Copyable, NotBuilt, Status } from "./parts.tsx";
+
+// ---- 4 tasks ---------------------------------------------------------------------------------
+
+export function StepTasks() {
+  const [mode, setMode] = useState<"fresh" | "taskwarrior">("fresh");
+  const [dry, setDry] = useState<TaskImportReport | null>(null);
+  const [done, setDone] = useState<TaskImportReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (dryRun: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await tasksImport(dryRun);
+      if (dryRun) setDry(r);
+      else setDone(r);
+    } catch (e) {
+      // the core's own words: "Taskwarrior is not installed", "no vault yet", …
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="ob-stack">
+      <p className="ob-lede">
+        Tasks are checkbox lines in your notes (Obsidian Tasks style), so agents and editors can read and add them too.
+      </p>
+      <fieldset className="ob-box">
+        <label className="ob-row">
+          <input type="radio" name="ob-tasks" checked={mode === "fresh"} onChange={() => setMode("fresh")} />
+          <span className="ob-row-main">
+            <b>Start fresh</b>
+            <br />
+            <span className="ob-muted">Add tasks as you go; loose ones land in 09-Planning/Tasks.md.</span>
+          </span>
+        </label>
+        <label className="ob-row">
+          <input type="radio" name="ob-tasks" checked={mode === "taskwarrior"} onChange={() => setMode("taskwarrior")} />
+          <span className="ob-row-main">
+            <b>Import from Taskwarrior</b>
+            <br />
+            <span className="ob-muted">
+              Reads <code>task export</code> and writes each task into its project's note in the primary vault.
+              Taskwarrior's own data is never touched.
+            </span>
+          </span>
+        </label>
+      </fieldset>
+      {mode === "taskwarrior" && (
+        <div className="ob-stack">
+          {!dry && (
+            <div>
+              <button type="button" className="ob-button" disabled={busy} onClick={() => void run(true)}>
+                {busy ? "reading…" : "dry run: show what would come in"}
+              </button>
+            </div>
+          )}
+          {dry && !done && (
+            <>
+              <p>{taskReportLine(dry)}</p>
+              {dry.targets.length > 0 && (
+                <ul className="ob-list">
+                  {dry.targets.slice(0, 12).map((t) => (
+                    <li key={t.note}>
+                      <code>{t.note}</code> {t.tasks} {t.tasks === 1 ? "task" : "tasks"}
+                      {t.create && <span className="ob-muted"> (new note)</span>}
+                    </li>
+                  ))}
+                  {dry.targets.length > 12 && <li className="ob-muted">…and {dry.targets.length - 12} more notes</li>}
+                </ul>
+              )}
+              {dry.sample.length > 0 && <pre className="ob-pre">{dry.sample.slice(0, 8).join("\n")}</pre>}
+              {dry.warnings.map((w, i) => (
+                <p key={i} className="ob-status">
+                  {w}
+                </p>
+              ))}
+              <div className="ob-inline">
+                <button type="button" className="ob-button is-primary" disabled={busy || dry.written === 0} onClick={() => void run(false)}>
+                  {busy ? "importing…" : `import ${dry.written}`}
+                </button>
+                <button type="button" className="ob-link" onClick={() => setDry(null)}>
+                  cancel
+                </button>
+              </div>
+            </>
+          )}
+          {done && <Status ok={`Imported. ${taskReportLine(done)}.`} />}
+        </div>
+      )}
+      <Status error={error} />
+    </div>
+  );
+}
+
+// ---- 5 local AI ------------------------------------------------------------------------------
+
+/** Installed models split into embedding and chat ones, by name. */
+export function splitModels(models: string[]): { embed: string[]; chat: string[] } {
+  const isEmbed = (m: string) => /embed|bge|minilm|e5-|gte-/i.test(m);
+  return { embed: models.filter(isEmbed), chat: models.filter((m) => !isEmbed(m)) };
+}
+
+export function StepAI() {
+  const [status, setStatus] = useState<OllamaStatus | null>(null);
+  const [rec, setRec] = useState<Recommendation | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [embed, setEmbed] = useState("");
+  const [chat, setChat] = useState("");
+  const [saved, setSaved] = useState<string | null>(null);
+
+  const detect = () => {
+    setError(null);
+    ollamaStatus().then(
+      (s) => {
+        setStatus(s);
+        const { embed: e, chat: c } = splitModels(s.models);
+        setEmbed(s.embedModel && s.models.includes(s.embedModel) ? s.embedModel : (e[0] ?? ""));
+        setChat(s.chatModel && s.models.includes(s.chatModel) ? s.chatModel : (c[0] ?? ""));
+      },
+      (e: unknown) => (unavailable(e) ? setMissing(true) : setError(message(e))),
+    );
+    ollamaRecommend().then(setRec, () => setRec(null));
+  };
+  useEffect(detect, []);
+
+  if (missing) return <NotBuilt what="Local AI detection" />;
+
+  const save = () =>
+    settingsUpdate({ ollama: { chatModel: chat, embedModel: embed } }).then(
+      () => setSaved(`Ask will use ${chat || "no chat model"} with ${embed || "no embeddings"}.`),
+      (e: unknown) => setError(unavailable(e) ? "Saving settings isn't in this build yet." : message(e)),
+    );
+
+  const models = splitModels(status?.models ?? []);
+  const pulls = rec?.commands ?? rec?.pulls ?? [];
+
+  return (
+    <div className="ob-stack">
+      <p className="ob-lede">
+        Ask answers from your notes with a model running on this Mac (Ollama). Optional: without one, Ask is search only.
+      </p>
+      {!status && !error && <p className="ob-muted">Looking for Ollama…</p>}
+      {status && (
+        <p className={status.up ? "ob-status is-ok" : "ob-status"}>
+          {status.up
+            ? `Ollama is running at ${status.url} with ${status.models.length} models.`
+            : (status.problem ?? `Ollama isn't answering at ${status.url}.`)}{" "}
+          <button type="button" className="ob-link" onClick={detect}>
+            check again
+          </button>
+        </p>
+      )}
+      {status?.up && status.models.length > 0 && (
+        <div className="ob-box ob-stack">
+          <label className="ob-field">
+            <span className="ob-label">embeddings (search)</span>
+            <select value={embed} onChange={(e) => setEmbed(e.target.value)}>
+              <option value="">none</option>
+              {[...models.embed, ...models.chat].map((m) => (
+                <option key={m}>{m}</option>
+              ))}
+            </select>
+          </label>
+          <label className="ob-field">
+            <span className="ob-label">chat (answers)</span>
+            <select value={chat} onChange={(e) => setChat(e.target.value)}>
+              <option value="">none</option>
+              {[...models.chat, ...models.embed].map((m) => (
+                <option key={m}>{m}</option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <button type="button" className="ob-button is-primary" onClick={() => void save()}>
+              use these
+            </button>
+          </div>
+          <Status ok={saved} />
+        </div>
+      )}
+      {rec && (
+        <div className="ob-stack">
+          <p>
+            For this Mac ({rec.memoryGb} GB): <b>{rec.embed}</b> for search
+            {rec.chat.length > 0 && (
+              <>
+                , <b>{rec.chat.join(" or ")}</b> for answers
+              </>
+            )}
+            . Vault HQ never installs anything itself; run these in a terminal if you want them:
+          </p>
+          {pulls.length > 0 && <Copyable text={pulls.join("\n")} title="ollama pull" />}
+          {!status?.binary && (
+            <p className="ob-muted">
+              Ollama itself comes from <code>ollama.com</code> or <code>brew install ollama</code>.
+            </p>
+          )}
+        </div>
+      )}
+      <Status error={error} />
+    </div>
+  );
+}
+
+// ---- 6 bookmarks ----------------------------------------------------------------------------
+
+export function StepBookmarks() {
+  const [sources, setSources] = useState<BrowserSource[] | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<BookmarkImportReport[] | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; lines: string[] } | null>(null);
+  const [enrich, setEnrich] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const detect = () =>
+    browsersDetect().then(setSources, (e: unknown) => (unavailable(e) ? setMissing(true) : setError(message(e))));
+  useEffect(() => void detect(), []);
+
+  if (missing) return <NotBuilt what="Browser bookmarks" />;
+
+  const allow = (s: BrowserSource, on: boolean) => {
+    setPreview(null);
+    browserAllow(s.id, on).then(
+      () => detect(),
+      (e: unknown) => setError(message(e)),
+    );
+  };
+
+  const allowed = (sources ?? []).filter((s) => s.allowed && !s.needsAccess);
+  const label = (id: string) => sources?.find((s) => s.id === id)?.label ?? id;
+
+  // dry run first: what would land where, nothing written
+  const dryRun = async () => {
+    setBusy(true);
+    setError(null);
+    const out: BookmarkImportReport[] = [];
+    for (const s of allowed) {
+      try {
+        out.push(await bookmarksImport(s.id, true));
+      } catch (e) {
+        setError(`${s.label}: ${message(e)}`);
+      }
+    }
+    setPreview(out);
+    setBusy(false);
+  };
+
+  const importAll = async () => {
+    setBusy(true);
+    setError(null);
+    const lines: string[] = [];
+    setProgress({ done: 0, total: allowed.length, lines });
+    for (const [i, s] of allowed.entries()) {
+      try {
+        lines.push(`${s.label}: ${bookmarkReportLine(await bookmarksImport(s.id, false))}`);
+      } catch (e) {
+        lines.push(`${s.label}: ${message(e)}`);
+      }
+      setProgress({ done: i + 1, total: allowed.length, lines: [...lines] });
+    }
+    if (enrich) {
+      try {
+        await settingsUpdate({ enrichBookmarks: true });
+        lines.push("Adding tags and summaries with the local model…");
+        setProgress({ done: allowed.length, total: allowed.length, lines: [...lines] });
+        const r = await bookmarksEnrich();
+        lines.push(`Enriched ${r.enriched}${r.failed ? `, ${r.failed} failed` : ""}${r.cancelled ? " (stopped)" : ""}.`);
+      } catch (e) {
+        lines.push(`Enrichment: ${message(e)}`);
+      }
+      setProgress({ done: allowed.length, total: allowed.length, lines: [...lines] });
+    }
+    setPreview(null);
+    setBusy(false);
+    void detect();
+  };
+
+  return (
+    <div className="ob-stack">
+      <p className="ob-lede">
+        Bring your browser bookmarks in as notes (one per link, in 10-Bookmarks/), so search and agents can find them.
+        Nothing is read until you tick a browser.
+      </p>
+      {!sources && !error && <p className="ob-muted">Looking for browsers…</p>}
+      {sources && sources.length === 0 && <p className="ob-muted">No browser bookmarks found on this Mac.</p>}
+      {sources && sources.length > 0 && (
+        <fieldset className="ob-box">
+          <legend className="ob-label">read bookmarks from</legend>
+          {sources.map((s) => (
+            <label key={s.id} className="ob-row">
+              <input type="checkbox" checked={s.allowed} disabled={busy} onChange={(e) => allow(s, e.target.checked)} />
+              <span className="ob-row-main">
+                <b>{s.label}</b> {typeof s.count === "number" && <span className="ob-muted">{s.count} bookmarks</span>}
+                {s.needsAccess && <span className="ob-chip">needs Full Disk Access</span>}
+                {s.guidance && (
+                  <>
+                    <br />
+                    <span className="ob-muted">{s.guidance}</span>
+                  </>
+                )}
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {allowed.length > 0 && !progress && (
+        <div className="ob-stack">
+          {!preview ? (
+            <div>
+              <button type="button" className="ob-button" disabled={busy} onClick={() => void dryRun()}>
+                {busy ? "reading…" : "dry run: show what would come in"}
+              </button>
+            </div>
+          ) : (
+            <>
+              <ul className="ob-list">
+                {preview.map((r) => (
+                  <li key={r.sourceId}>
+                    <b>{label(r.sourceId)}</b>: {bookmarkReportLine(r)}
+                    {r.sample.length > 0 && (
+                      <ul className="ob-list">
+                        {r.sample.slice(0, 3).map((b) => (
+                          <li key={b.rel}>
+                            {b.title} <span className="ob-muted">→ {b.rel}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <label className="ob-row">
+                <input type="checkbox" checked={enrich} onChange={(e) => setEnrich(e.target.checked)} />
+                <span className="ob-row-main">
+                  Also add tags and a one-line summary with the local model{" "}
+                  <span className="ob-muted">(fetches each page; can be stopped later)</span>
+                </span>
+              </label>
+              <div className="ob-inline">
+                <button type="button" className="ob-button is-primary" disabled={busy} onClick={() => void importAll()}>
+                  import from {allowed.length} {allowed.length === 1 ? "browser" : "browsers"}
+                </button>
+                <button type="button" className="ob-link" onClick={() => setPreview(null)}>
+                  cancel
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {progress && (
+        <div className="ob-stack">
+          <div className="ob-progress" role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done}>
+            <div style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 100}%` }} />
+          </div>
+          <ul className="ob-list">
+            {progress.lines.map((l, i) => (
+              <li key={i}>{l}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <Status error={error} />
+    </div>
+  );
+}
