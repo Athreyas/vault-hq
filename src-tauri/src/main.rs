@@ -71,6 +71,8 @@ fn run() {
             });
             let keys = shell.settings().hotkeys;
             app.manage(shell);
+            // W widgets: sampler, JSON status cache; task/inbox sources join with stream A
+            app.manage(commands::widgets::WidgetsState::new(None));
             // ---- stream A: app.manage(hq_core::hq::Hq::open(...)?) goes here ----
 
             if cfg!(debug_assertions) {
@@ -103,6 +105,7 @@ fn run() {
                 Err(e) => eprintln!("vault-hq: hotkeys in settings: {e}"),
             }
             jobs::start(app.handle().clone());
+            jobs::start_widget_sampler(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| match event {

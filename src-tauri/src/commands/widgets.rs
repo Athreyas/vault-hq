@@ -1,41 +1,36 @@
 //! Widget commands (SPEC 10, 12). Owned by stream W. Thin: validate → hq_core → map errors.
 //!
-//! Register with `.manage(WidgetsState::new(support_dir, sources))` and
-//! `widgets_catalog, widgets_layout_get, widgets_layout_set, widget_data` in the handler
-//! list. `jobs.rs` starts the 5 s sampler with
-//! `hq_core::widgets::system::spawn(state.sampler(), system::TICK, stop)`.
+//! The layout lives in `Settings.widgets` and is read and written through the shell's
+//! `Shell` state, so settings.json has one writer. Data requests use `WidgetsState`
+//! (the system sampler, the JSON status cache and the vault sources), managed in main.rs;
+//! `jobs::start_widget_sampler` ticks the sampler every 5 s.
 
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use hq_core::settings::Store;
 use hq_core::types::{WidgetCatalogEntry, WidgetData, WidgetKind, WidgetLayout};
 use hq_core::widgets::{self, json::JsonCache, system, Context, NoSources, WidgetSources};
 use hq_core::{Error, Result};
 use serde_json::{Map, Value};
 use tauri::State;
 
+use crate::state::Shell;
+
 pub struct WidgetsState {
     inner: Arc<Inner>,
 }
 
 struct Inner {
-    support_dir: PathBuf,
-    /// Layout writes are read-modify-write of settings.json; one at a time.
-    settings_lock: Mutex<()>,
     sampler: system::SharedSampler,
     json: JsonCache,
     sources: Arc<dyn WidgetSources>,
 }
 
 impl WidgetsState {
-    /// `sources` gives the task and inbox widgets their data; pass `None` until the task
-    /// engine and inbox are wired, and those widgets say they aren't connected.
-    pub fn new(support_dir: PathBuf, sources: Option<Arc<dyn WidgetSources>>) -> Self {
+    /// `sources` gives the task and inbox widgets their data; `None` until the task engine
+    /// and inbox are wired (stream A's `Hq`), and those widgets say they aren't connected.
+    pub fn new(sources: Option<Arc<dyn WidgetSources>>) -> Self {
         WidgetsState {
             inner: Arc::new(Inner {
-                support_dir,
-                settings_lock: Mutex::new(()),
                 sampler: system::shared(),
                 json: JsonCache::default(),
                 sources: sources.unwrap_or_else(|| Arc::new(NoSources)),
@@ -49,44 +44,28 @@ impl WidgetsState {
     }
 }
 
-/// Run blocking work (settings file, sysinfo, an HTTP fetch) off the main thread.
-async fn blocking<T, F>(f: F) -> Result<T>
-where
-    T: Send + 'static,
-    F: FnOnce() -> Result<T> + Send + 'static,
-{
-    tauri::async_runtime::spawn_blocking(f)
-        .await
-        .map_err(|e| Error::Internal(format!("widget task failed: {e}")))?
-}
-
 #[tauri::command]
 pub fn widgets_catalog() -> Vec<WidgetCatalogEntry> {
     widgets::catalog()
 }
 
 #[tauri::command]
-pub async fn widgets_layout_get(state: State<'_, WidgetsState>) -> Result<WidgetLayout> {
-    let inner = state.inner.clone();
-    blocking(move || widgets::load(&Store::new(&inner.support_dir))).await
+pub fn widgets_layout_get(shell: State<'_, Shell>) -> WidgetLayout {
+    widgets::from_settings(&shell.settings().widgets).layout
 }
 
 #[tauri::command]
-pub async fn widgets_layout_set(
-    state: State<'_, WidgetsState>,
-    layout: WidgetLayout,
-) -> Result<WidgetLayout> {
-    let inner = state.inner.clone();
-    blocking(move || {
-        let _guard = inner
-            .settings_lock
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        widgets::save(&Store::new(&inner.support_dir), layout)
-    })
-    .await
+pub fn widgets_layout_set(shell: State<'_, Shell>, layout: WidgetLayout) -> Result<WidgetLayout> {
+    let mut saved = None;
+    shell.update_settings(|s| {
+        saved = Some(widgets::apply(s, layout)?);
+        Ok(())
+    })?;
+    saved.ok_or_else(|| Error::Internal("the widget layout was not saved".into()))
 }
 
+/// Runs on a blocking thread: sampling and a JSON fetch (up to its timeout) must never
+/// hold up the window.
 #[tauri::command]
 pub async fn widget_data(
     state: State<'_, WidgetsState>,
@@ -94,7 +73,7 @@ pub async fn widget_data(
     config: Map<String, Value>,
 ) -> Result<WidgetData> {
     let inner = state.inner.clone();
-    blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         let ctx = Context {
             sampler: &inner.sampler,
             json: &inner.json,
@@ -104,4 +83,5 @@ pub async fn widget_data(
         widgets::data(kind, &config, &ctx)
     })
     .await
+    .map_err(|e| Error::Internal(format!("widget task failed: {e}")))?
 }

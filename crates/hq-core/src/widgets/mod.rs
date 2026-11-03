@@ -672,17 +672,27 @@ pub fn load(store: &crate::settings::Store) -> Result<WidgetLayout> {
     Ok(from_settings(&store.load()?.widgets).layout)
 }
 
-/// Validate `layout` and write it to settings.json, keeping entries a newer build left and
-/// every other setting as it was. Returns what was saved (with any new ids filled in).
-/// Callers serialise their own settings writes.
-pub fn save(store: &crate::settings::Store, layout: WidgetLayout) -> Result<WidgetLayout> {
-    let mut settings = store.load()?;
+/// Validate `layout` and put it into `settings`, keeping entries a newer build left.
+/// Returns what was stored (with any new ids filled in). The caller saves the settings,
+/// so the app's one settings writer stays the only one.
+pub fn apply(
+    settings: &mut crate::settings::Settings,
+    layout: WidgetLayout,
+) -> Result<WidgetLayout> {
     let kept = from_settings(&settings.widgets).kept;
     let layout = validate(layout, &kept)?;
     settings.widgets = to_settings(&Stored {
         layout: layout.clone(),
         kept,
     });
+    Ok(layout)
+}
+
+/// `apply` and save through `store`, for callers without their own settings state
+/// (tools, tests). Callers serialise their own settings writes.
+pub fn save(store: &crate::settings::Store, layout: WidgetLayout) -> Result<WidgetLayout> {
+    let mut settings = store.load()?;
+    let layout = apply(&mut settings, layout)?;
     store.save(&settings)?;
     Ok(layout)
 }

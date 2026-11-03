@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { addDays, api, iso, parseDate, useCall } from "../api.ts";
 import Problem from "./Problem.tsx";
 import { RichLine } from "./Rich.tsx";
+import { WidgetGrid } from "./widgets/index.ts";
 
 // Every panel at once instead of one card at a time. Arrow keys move between panels,
 // Enter follows the panel's action. The Ask bar widens while it has focus.
@@ -97,6 +98,8 @@ export default function Home({ date, onAsk }: { date: string; onAsk: (q: string,
         </div>
         <span className="home-weekday">{parseDate(date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</span>
       </div>
+
+      <WidgetGrid />
 
       {error && <Problem error={error} what="the home view" />}
       {!data && !error && <p className="empty">Reading the vault…</p>}

@@ -65,6 +65,7 @@
     "allow-agent-config-apply",
     "allow-import-analyze",
     "allow-import-apply",
+    "allow-widgets-catalog",
     "allow-widgets-layout-get",
     "allow-widgets-layout-set",
     "allow-widget-data",

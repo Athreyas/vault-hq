@@ -73,6 +73,8 @@ export default function WidgetGrid() {
 
   const onHandleKey = (e: KeyboardEvent, w: WidgetInstance, i: number) => {
     const name = widgetTitle(w, entryOf(w));
+    // Home moves focus between panels on arrow keys; while a widget is held they are ours
+    if (grab && e.key.startsWith("Arrow")) e.stopPropagation();
     if (!grab) {
       if (e.key === " " || e.key === "Enter") {
         e.preventDefault();
