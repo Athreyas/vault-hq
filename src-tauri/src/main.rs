@@ -72,7 +72,9 @@ fn run() {
                 Shell::degraded(dirs, &e)
             });
             let keys = shell.settings().hotkeys;
-            let tasks_cache = shell.dirs.cache.clone();
+            let tasks_cache = shell.hq.cache_dir().to_path_buf();
+            // the core state the vault/notes/home commands take; the shell shares it
+            app.manage(shell.hq.clone());
             app.manage(shell);
             // B tasks: answers from the cached index until the first command scans
             app.manage(commands::tasks::TasksState::new(tasks_cache));
@@ -80,7 +82,6 @@ fn run() {
             app.manage(commands::widgets::WidgetsState::new(Some(
                 std::sync::Arc::new(commands::widgets::AppSources::new(app.handle().clone())),
             )));
-            // ---- stream A: app.manage(hq_core::hq::Hq::open(...)?) goes here ----
 
             if cfg!(debug_assertions) {
                 let pending = commands::pending();

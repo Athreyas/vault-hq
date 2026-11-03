@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Task } from "../bindings/Task.ts";
-import { addDays, parseFilter, parsePriority, parseQuickAdd, patchFrom, resolveDate, resolveRecur, resolveTime, taskToSyntax } from "./TasksSyntax.ts";
+import { addDays, parseFilter, projectTitles, parsePriority, parseQuickAdd, patchFrom, resolveDate, resolveRecur, resolveTime, taskToSyntax } from "./TasksSyntax.ts";
 
 // 2026-11-02 is a Monday
 const TODAY = "2026-11-02";
@@ -181,5 +181,18 @@ describe("due time", () => {
     const t = task({ due: "2026-11-06", dueTime: "09:00" });
     expect(taskToSyntax(t)).toContain("due:2026-11-06 at:09:00");
     expect(patchFrom(t, parseQuickAdd("Fix the gate #home due:2026-11-06 at:17:30", TODAY))).toEqual({ dueTime: "17:30" });
+  });
+});
+
+describe("projectTitles", () => {
+  it("names a project by its note's title, keeping tag-only projects as they are", () => {
+    const m = projectTitles([
+      { project: "garden-irrigation", note: "v1:01-Projects/garden-irrigation.md", noteTitle: "Garden drip irrigation" },
+      { project: "taxes", note: "v1:09-Planning/Tasks.md", noteTitle: "Tasks" },
+      { project: null, note: "v1:x.md", noteTitle: "X" },
+    ]);
+    expect(m.get("garden-irrigation")).toBe("Garden drip irrigation");
+    expect(m.has("taxes")).toBe(false);
+    expect(m.size).toBe(1);
   });
 });

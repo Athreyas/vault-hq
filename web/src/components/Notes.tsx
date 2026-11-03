@@ -42,7 +42,7 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
     if (!shown || shown.rel.startsWith(ARCHIVE)) return;
     if (!window.confirm(`Move “${shown.title}” to ${ARCHIVE}? Links to it keep working.`)) return;
     try {
-      const moved = await api.noteMove(shown.id, ARCHIVE + shown.rel.replace(/^.*\//, ""));
+      const moved = await api.noteArchive(shown.id);
       notify(`Archived: ${shown.title}`);
       window.location.hash = noteUrl(moved.id);
     } catch (e) {

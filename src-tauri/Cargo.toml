@@ -21,7 +21,6 @@ tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-single-instance = "2"
 url = "2"
-walkdir = "2"
 
 [dev-dependencies]
 tempfile = "3"

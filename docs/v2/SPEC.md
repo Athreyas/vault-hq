@@ -290,7 +290,7 @@ All types live in `hq-core/src/types.rs` and are exported to TypeScript. Errors 
 |---|---|
 | app | `app_status() -> Status`, `settings_get() -> Settings`, `settings_update(patch) -> Settings`, `reveal(what)` |
 | vaults | `vaults_list()`, `vault_add(path)`, `vault_create(path, name, layout)`, `vault_remove(id)`, `vault_set_primary(id)`, `vault_candidates()` |
-| notes | `notes_list(filter)`, `note_get(ref)`, `note_source(id) -> {text, hash}`, `note_save(id, text, base) -> SaveResult`, `note_create(input) -> NoteView`, `note_move(id, to)`, `templates_list()` |
+| notes | `notes_list(filter)`, `note_get(reference)` (an id, or a wiki-style target resolved in the primary vault first), `note_source(id) -> {text, hash}`, `note_save(id, text, base) -> SaveResult` (a stale `base` is the `Conflict` error with `current`), `note_create(input) -> NoteView`, `note_move(id, to, dryRun?) -> MoveResult` (a dry run lists the notes whose links would change), `note_archive(id) -> MoveResult`, `templates_list()` |
 | capture | `capture(text, kind?: "note"|"task"|"bookmark", vault?)` |
 | home | `home(date?) -> Home`, `days(from, span) -> Day[]`, `needs() -> Need[]`, `needs_decide(id, outcome, why)`, `inbox() -> InboxItem[]`, `inbox_archive(id)` |
 | tasks | `tasks_query(TaskQuery) -> TaskGroups`, `task_add(TaskInput)`, `task_update(id, TaskPatch)`, `task_done(id)`, `task_cancel(id)`, `task_delete(id)`, `task_annotate(id, text)`, `task_start(id)`, `tasks_stats(StatsQuery) -> TaskStats`, `tasks_import_taskwarrior(dry_run) -> ImportReport` |

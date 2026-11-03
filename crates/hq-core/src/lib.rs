@@ -13,6 +13,7 @@ pub mod util;
 pub mod capture;
 pub mod days;
 pub mod home;
+pub mod hq;
 pub mod inbox;
 pub mod needs;
 pub mod notes;

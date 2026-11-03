@@ -10,7 +10,7 @@ import type { TaskGroups } from "../bindings/TaskGroups.ts";
 import type { TaskSort } from "../bindings/TaskSort.ts";
 import "./Tasks.css";
 import TasksStats from "./TasksStats.tsx";
-import { addDays, parseFilter, parseQuickAdd, patchFrom, taskToSyntax } from "./TasksSyntax.ts";
+import { addDays, parseFilter, parseQuickAdd, patchFrom, projectTitles, taskToSyntax } from "./TasksSyntax.ts";
 
 const GROUPS: { key: TaskGroupBy; label: string }[] = [
   { key: "none", label: "none" },
@@ -107,6 +107,7 @@ export default function Tasks({ notify, onChange, onOpenNote, focus }: Props) {
   }, [parsedFilter, group, sort, tick]);
 
   // one row per (group, task): a task with two tags shows twice when grouped by tag
+  const titles = useMemo(() => projectTitles((data?.groups ?? []).flatMap((g) => g.tasks)), [data]);
   const rows = useMemo(() => (data?.groups ?? []).flatMap((g) => g.tasks.map((t) => ({ group: g.key, task: t }))), [data]);
   const current = rows[Math.min(sel, rows.length - 1)]?.task;
 
@@ -357,21 +358,24 @@ export default function Tasks({ notify, onChange, onOpenNote, focus }: Props) {
             </button>
           ))}
         </div>
-        <select
-          aria-label="Sort by"
-          value={sort}
-          onChange={(e) => {
-            const s = e.target.value as TaskSort;
-            writePref("sort", s);
-            setSort(s);
-          }}
-        >
+        <div className="segmented" role="group" aria-label="Sort by">
+          <span className="tk-seg-label" aria-hidden="true">
+            sort
+          </span>
           {SORTS.map((s) => (
-            <option key={s} value={s}>
-              sort: {s}
-            </option>
+            <button
+              key={s}
+              className={sort === s ? "is-active" : ""}
+              aria-pressed={sort === s}
+              onClick={() => {
+                writePref("sort", s);
+                setSort(s);
+              }}
+            >
+              {s}
+            </button>
           ))}
-        </select>
+        </div>
         <div className="segmented" role="group" aria-label="View">
           <button className={view === "list" ? "is-active" : ""} aria-pressed={view === "list"} onClick={() => setView("list")}>
             list
@@ -401,7 +405,7 @@ export default function Tasks({ notify, onChange, onOpenNote, focus }: Props) {
             <section key={g.key} className="tk-group">
               {group !== "none" && (
                 <h2 className={g.key === "overdue" ? "is-late" : ""}>
-                  {g.label} <span className="count">{g.tasks.length}</span>
+                  {group === "project" && g.key ? (titles.get(g.key) ?? g.label) : g.label} <span className="count">{g.tasks.length}</span>
                 </h2>
               )}
               <ul>
@@ -454,7 +458,9 @@ export default function Tasks({ notify, onChange, onOpenNote, focus }: Props) {
                               #{x}
                             </span>
                           ))}
-                          {t.project && group !== "project" && <span className="tk-project">+{t.project}</span>}
+                          {t.project && group !== "project" && <span className="tk-project" title={`project:${t.project}`}>
+                              +{titles.get(t.project) ?? t.project}
+                            </span>}
                         </span>
                       )}
                       <span className="tk-flags">

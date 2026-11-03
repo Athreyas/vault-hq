@@ -1,6 +1,10 @@
 # The checks every push to v2/main and every PR must pass (docs/v2/SPEC.md section 14).
 # Nothing here signs, notarizes or publishes: releases are made only on the
 # maintainer's Mac with scripts/release.sh, so CI holds no secrets.
+#
+# Speed: the Rust work runs as three parallel jobs (lint, tests, app build) instead of
+# one long one; only pushes to v2 save the Rust caches (PRs restore them); a PR that
+# changes only docs skips Rust and web, and a web-only PR skips Rust.
 name: CI
 
 on:
@@ -17,32 +21,78 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
   RUST_BACKTRACE: short
 
 jobs:
-  rust:
-    name: Rust (fmt, clippy, test, bindings, app build)
-    # The app is Apple Silicon only; build and test where it runs.
-    runs-on: macos-14
-    timeout-minutes: 45
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+      web: ${{ steps.filter.outputs.web }}
     steps:
       - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'src-tauri/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'deny.toml'
+              - '.cargo/**'
+              - 'web/src/bindings/**'
+              - '.github/workflows/**'
+            web:
+              - 'web/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'tsconfig.json'
+              - 'crates/hq-core/src/**'
+              - '.github/workflows/**'
 
+  rust-lint:
+    name: Rust lint (fmt, clippy)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-
       - uses: Swatinem/rust-cache@v2
-
+        with:
+          shared-key: lint
+          save-if: ${{ github.ref == 'refs/heads/v2' }}
       - name: cargo fmt
         run: cargo fmt --all --check
-
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+  rust-test:
+    name: Rust tests and bindings
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: test
+          save-if: ${{ github.ref == 'refs/heads/v2' }}
       - name: cargo test
         run: cargo test --workspace
-
       - name: TypeScript bindings are up to date
         run: |
           cargo test -p hq-core export_bindings
@@ -53,56 +103,62 @@ jobs:
             exit 1
           fi
 
+  app-build:
+    name: App compiles (tauri build --no-bundle)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.web == 'true'
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: app
+          save-if: ${{ github.ref == 'refs/heads/v2' }}
       # The Tauri CLI comes from npm (package.json), so the app build needs node.
       - uses: actions/setup-node@v4
         with:
           node-version: 25
           cache: npm
-
       - run: npm ci
-
-      - name: App compiles (tauri build --no-bundle)
-        run: npx tauri build --no-bundle --debug
+      - run: npx tauri build --no-bundle --debug
 
   web:
     name: Web (typecheck, test, build, audit)
-    runs-on: macos-14
-    timeout-minutes: 20
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    # The web checks need no macOS: a Linux runner starts faster.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 25
           cache: npm
-
       - run: npm ci
-
       - name: Typecheck
         run: npm run typecheck
-
       - name: Test (vitest)
         run: npm run test
-
       - name: Build
         run: npm run build
-
       - name: npm audit (runtime dependencies)
         run: npm audit --omit=dev --audit-level=high
 
   deny:
     name: Licenses and advisories (cargo deny)
-    # cargo-deny-action is a container action, so it needs a Linux runner; deny.toml
-    # resolves the graph for aarch64-apple-darwin, so the result is the Mac app's.
+    # deny.toml resolves the graph for aarch64-apple-darwin, so the result is the Mac
+    # app's. A prebuilt cargo-deny binary instead of the action's container build.
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: taiki-e/install-action@v2
         with:
-          command: check
-          arguments: --all-features
+          tool: cargo-deny
+      - run: cargo deny --all-features check
 
   privacy:
     name: Privacy scan
@@ -110,7 +166,6 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-
       # CI has only the generic patterns; the maintainer's .privacy-terms stays local.
       - name: scripts/privacy-check.sh
         run: scripts/privacy-check.sh

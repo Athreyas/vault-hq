@@ -1,4 +1,5 @@
 import type { View } from "../App.tsx";
+import { VIEWS } from "../App.tsx";
 
 // The key legend for the current view, always on the last line like a TUI status bar.
 const BY_VIEW: Record<View, [string, string][]> = {
@@ -29,7 +30,7 @@ export default function Hints({ view }: { view: View }) {
           <kbd>⌘,</kbd> settings
         </li>
         <li>
-          <kbd>1-7</kbd> views
+          <kbd>1-{VIEWS.length}</kbd> views
         </li>
         {BY_VIEW[view].map(([k, label]) => (
           <li key={k}>

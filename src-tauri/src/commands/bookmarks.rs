@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use hq_core::bookmarks::{self, enrich, store};
 use hq_core::ollama::{CancelToken, Chat, ChatMessage, Models};
-use hq_core::settings::{self, Settings};
+use hq_core::settings::Settings;
 use hq_core::types::{
     split_note_id, Bookmark, BookmarkFilter, BookmarkImportReport, BookmarkPage, BrowserSource,
     EnrichReport, JobProgress, Memory, VaultChanged,
@@ -28,22 +28,18 @@ pub fn home() -> Result<PathBuf> {
         .ok_or_else(|| Error::Unavailable("HOME is not set, so browsers can't be found.".into()))
 }
 
-/// Bookmarks land in the primary vault (captures go there too). Blocked vaults are refused
-/// before anything inside them is read.
+/// Bookmarks land in the primary vault (captures go there too). The core registry picks
+/// it, with its blocked-name check on the whole path before anything inside is read.
 pub fn primary_vault(s: &Settings) -> Result<Vault> {
-    let entry = s
-        .primary_vault
-        .as_ref()
-        .and_then(|id| s.vaults.iter().find(|v| &v.id == id))
-        .or_else(|| s.vaults.first())
-        .ok_or_else(|| {
-            Error::Unavailable("Add a vault first: bookmarks are saved as notes in it.".into())
-        })?;
-    let root = PathBuf::from(&entry.path);
-    if let Some(why) = settings::blocked(s, &root) {
-        return Err(Error::Denied(why));
-    }
-    Vault::open(&root)
+    hq_core::vault::registry::Registry::load(s)
+        .primary()
+        .cloned()
+        .map_err(|e| match e {
+            Error::Unavailable(_) => {
+                Error::Unavailable("Add a vault first: bookmarks are saved as notes in it.".into())
+            }
+            e => e,
+        })
 }
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {

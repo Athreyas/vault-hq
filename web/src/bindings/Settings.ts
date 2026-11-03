@@ -10,4 +10,8 @@ export type Settings = { vaults: Array<VaultEntry>, primaryVault: string | null,
 /**
  * Folder names this Mac refuses to open, checked before reading anything inside.
  */
-blockedVaultNames: Array<string>, theme: Theme, hotkeys: Hotkeys, ollama: OllamaSettings, onboarding: OnboardingState, browsers: { [key in string]: boolean }, enrichBookmarks: boolean, memories: MemoriesState, widgets: unknown, };
+blockedVaultNames: Array<string>, theme: Theme, hotkeys: Hotkeys, 
+/**
+ * Needs-you items hidden until a date: need id -> `YYYY-MM-DD` it comes back.
+ */
+snoozed: { [key in string]: string }, ollama: OllamaSettings, onboarding: OnboardingState, browsers: { [key in string]: boolean }, enrichBookmarks: boolean, memories: MemoriesState, widgets: unknown, };

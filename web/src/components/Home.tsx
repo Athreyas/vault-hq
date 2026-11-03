@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { addDays, api, iso, parseDate, useCall } from "../api.ts";
+import { addDays, api, cardHref, iso, parseDate, useCall } from "../api.ts";
 import Memories from "./BookmarksMemories.tsx";
 import Problem from "./Problem.tsx";
 import { RichLine } from "./Rich.tsx";
@@ -112,7 +112,7 @@ export default function Home({ date, onAsk }: { date: string; onAsk: (q: string,
             tabIndex={0}
             aria-label={`${c.title}. ${c.kicker}`}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && c.action && e.target === e.currentTarget) window.location.href = c.action.href;
+              if (e.key === "Enter" && c.action && e.target === e.currentTarget) window.location.href = cardHref(c.action);
             }}
           >
             <header className="panel-head">
@@ -139,7 +139,7 @@ export default function Home({ date, onAsk }: { date: string; onAsk: (q: string,
               </div>
             )}
             {c.action && (
-              <a className="panel-action" href={c.action.href}>
+              <a className="panel-action" href={cardHref(c.action)}>
                 ⏎ {c.action.label.toLowerCase()}
               </a>
             )}

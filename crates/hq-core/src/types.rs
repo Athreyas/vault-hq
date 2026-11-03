@@ -42,6 +42,366 @@ pub struct Source {
 
 // ---- A core -----------------------------------------------------------------------------
 
+/// A folder that looks like a vault, offered by `vault_candidates()`.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultCandidate {
+    pub path: String,
+    pub name: String,
+    /// `vault-hq` (has a marker) or `obsidian` (has `.obsidian/`).
+    pub kind: String,
+    pub added: bool,
+}
+
+/// `vault_create(path, name, layout)`: `default` makes the SPEC 3 folders, `empty` none.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum VaultLayout {
+    #[default]
+    Default,
+    Empty,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteSummary {
+    pub id: NoteId,
+    pub vault: String,
+    pub vault_name: String,
+    pub rel: String,
+    pub title: String,
+    pub folder: String,
+    #[serde(rename = "type")]
+    #[ts(rename = "type")]
+    pub note_type: Option<String>,
+    pub updated: String,
+    pub tags: Vec<String>,
+}
+
+/// `notes_list(filter)`; every field narrows the list, none means everything.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NoteFilter {
+    #[ts(optional)]
+    pub vault: Option<String>,
+    /// A folder and everything under it.
+    #[ts(optional)]
+    pub folder: Option<String>,
+    #[serde(rename = "type")]
+    #[ts(optional, rename = "type")]
+    pub note_type: Option<String>,
+    /// Case-insensitive, in the title, path or body.
+    #[ts(optional)]
+    pub text: Option<String>,
+    /// Notes updated on or after this `YYYY-MM-DD`.
+    #[ts(optional)]
+    pub updated_since: Option<String>,
+    #[ts(optional)]
+    pub limit: Option<u32>,
+}
+
+/// One outgoing link of a note and where it resolves (SPEC 3), if anywhere.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkView {
+    /// The target as written, without `#heading` or `|alias`.
+    pub target: String,
+    pub embed: bool,
+    pub resolved: Option<NoteId>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteView {
+    #[serde(flatten)]
+    #[ts(flatten)]
+    pub note: NoteSummary,
+    /// Frontmatter in file order, without `title`.
+    pub props: Vec<(String, String)>,
+    /// The body after the frontmatter, minus a leading `# <title>` the reader shows anyway.
+    pub body: String,
+    pub hash: String,
+    pub links: Vec<LinkView>,
+    pub backlinks: Vec<NoteSummary>,
+}
+
+/// `note_save`: what was written. A conflict is the `Conflict` error, carrying what is on disk.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveResult {
+    pub id: NoteId,
+    pub text: String,
+    pub hash: String,
+}
+
+/// `note_create(input)`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NoteInput {
+    pub title: String,
+    /// Vault id; the primary vault when absent.
+    #[ts(optional)]
+    pub vault: Option<String>,
+    /// Vault-relative folder; chosen from `type` when absent.
+    #[ts(optional)]
+    pub folder: Option<String>,
+    /// A template's name (`_templates/<name>.md`) or its vault-relative path.
+    #[ts(optional)]
+    pub template: Option<String>,
+    #[serde(rename = "type")]
+    #[ts(optional, rename = "type")]
+    pub note_type: Option<String>,
+    #[ts(optional)]
+    pub tags: Option<Vec<String>>,
+    /// Text after the heading (a blank note) or after the template's text.
+    #[ts(optional)]
+    pub body: Option<String>,
+    /// `human` when absent; MCP passes the agent's name.
+    #[ts(optional)]
+    pub author: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateInfo {
+    pub vault: String,
+    pub vault_name: String,
+    pub name: String,
+    pub rel: String,
+}
+
+/// `note_move`: the new id and the notes whose links were (or, on a dry run, would be) updated.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveResult {
+    pub id: NoteId,
+    pub relinked: Vec<NoteId>,
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureKind {
+    #[default]
+    Note,
+    Task,
+    Bookmark,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureResult {
+    pub kind: CaptureKind,
+    /// The note the text landed in.
+    pub id: NoteId,
+    pub line: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum Phase {
+    Dawn,
+    Day,
+    Dusk,
+    Night,
+}
+
+/// Where a card's button goes. `view` is one of `tasks`, `needs`, `inbox`, `day`, `note`;
+/// `arg` is the date or note id when the view needs one.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct CardAction {
+    pub label: String,
+    pub view: String,
+    pub arg: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct Card {
+    pub id: String,
+    /// focus, needs, inbox, done, tomorrow, project, findings.
+    pub kind: String,
+    pub kicker: String,
+    pub title: String,
+    pub lines: Vec<String>,
+    pub progress: Option<u32>,
+    pub hue: u32,
+    /// The vault a card is about; absent for cards that cover every vault.
+    pub vault: Option<String>,
+    pub vault_name: Option<String>,
+    pub action: Option<CardAction>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct Home {
+    pub date: String,
+    pub phase: Phase,
+    pub greeting: String,
+    pub cards: Vec<Card>,
+    /// Questions worth asking now, for the Ask bar.
+    pub suggestions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentLogLine {
+    pub time: Option<String>,
+    /// The writer, from `- HH:MM who · text`.
+    pub who: Option<String>,
+    pub text: String,
+    /// `[[link]]` targets mentioned in the line.
+    pub links: Vec<String>,
+    pub vault_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct DaySection {
+    pub heading: String,
+    pub lines: Vec<String>,
+}
+
+/// A checkbox task as the core views read it. Stream B's task model is the full one.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskLine {
+    pub note: NoteId,
+    pub text: String,
+    /// `pending`, `started`, `waiting`, `done`, `cancelled`.
+    pub status: String,
+    /// `H`, `M` or `L`.
+    pub priority: Option<String>,
+    pub due: Option<String>,
+    pub done: Option<String>,
+    pub task_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteRef {
+    pub id: NoteId,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct Day {
+    pub date: String,
+    pub exists: bool,
+    /// The primary vault's daily note (or the first vault that has one).
+    pub note: Option<NoteId>,
+    /// Underscored frontmatter keys of the daily notes (`tasks_pending: 12`).
+    #[ts(type = "Record<string, number | string>")]
+    pub metrics: std::collections::BTreeMap<String, serde_json::Value>,
+    pub human: Vec<DaySection>,
+    pub agent_log: Vec<AgentLogLine>,
+    pub completed: Vec<TaskLine>,
+    pub captures: Vec<NoteRef>,
+    pub due_tasks: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(rename_all = "kebab-case")]
+pub enum NeedKind {
+    Overdue,
+    DueSoon,
+    Capture,
+    Proposal,
+    StaleProject,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct Outcome {
+    pub key: String,
+    pub label: String,
+    pub hint: String,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct Evidence {
+    pub note: Option<NoteId>,
+    pub excerpt: String,
+    pub when: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct Need {
+    pub id: String,
+    pub kind: NeedKind,
+    pub label: String,
+    pub title: String,
+    pub detail: String,
+    pub vault: String,
+    pub vault_name: String,
+    pub evidence: Evidence,
+    pub outcomes: Vec<Outcome>,
+    /// Lower is more urgent.
+    pub rank: f64,
+    /// The task's `🆔`, for task needs that have one.
+    pub task_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct DecideResult {
+    pub result: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(rename_all = "lowercase")]
+pub enum InboxKind {
+    Capture,
+    Session,
+    Compact,
+    Proposal,
+    Dump,
+}
+
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxItem {
+    pub id: NoteId,
+    pub vault_name: String,
+    pub title: String,
+    pub kind: InboxKind,
+    pub created: String,
+    pub age_days: u32,
+    pub author: String,
+}
+
 // ---- B tasks ----------------------------------------------------------------------------
 
 /// A checkbox's state (SPEC 4.1): `[ ]` `[/]` `[x]` `[-]` `[>]`.
@@ -396,12 +756,13 @@ pub struct TaskStats {
     pub overdue: u32,
     pub done_7: u32,
     pub done_30: u32,
-    /// Of the tasks created in the last 7 / 30 days, the share now done (0–1).
+    /// Done in the last 7 / 30 days over (that done + open now): the share of the
+    /// period's work that got done (0–1).
     pub completion_7: f64,
     pub completion_30: f64,
-    /// Done per day, averaged over the last 7 days.
+    /// Done per day, averaged over the window (`from`..`to`).
     pub burn_rate: f64,
-    /// Open tasks grow by this much per day, averaged over the last 7 days.
+    /// Open tasks grow by this much per day over the window (negative: shrinking).
     pub net_per_day: f64,
     /// When the open count reaches zero at the current net rate, if it is falling.
     pub projected_zero: Option<String>,
@@ -717,6 +1078,226 @@ pub struct ActionAdded {
 }
 
 // ---- E onboarding -----------------------------------------------------------------------
+
+/// How an agent is connected to `vault-hq mcp`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub enum ConnectKind {
+    /// HQ edits the agent's own config file, after a preview and a yes.
+    File,
+    /// The agent has its own command for it; HQ shows the command to run.
+    Command,
+    /// No local MCP: the agent works from its prompt text alone.
+    None,
+}
+
+/// An agent the onboarding wizard can set up (SPEC 9, 11).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct Agent {
+    pub id: String,
+    pub name: String,
+    pub blurb: String,
+    /// Can run `vault-hq mcp` as a local (stdio) MCP server.
+    pub mcp: bool,
+    pub connect: ConnectKind,
+    /// The config file HQ would edit, `~`-relative, when `connect` is `file`.
+    pub config_path: Option<String>,
+    /// The agent's app or config folder exists on this Mac.
+    pub detected: bool,
+    /// What the prompt text is: "skill", "rule", "agents-md", "instructions".
+    pub prompt_kind: String,
+    /// Where the user puts the prompt text, in words.
+    pub prompt_target: String,
+    /// The `author:` value this agent writes.
+    pub author: String,
+}
+
+/// What connecting an agent would change, shown before anything is written.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigDiff {
+    pub agent_id: String,
+    pub kind: ConnectKind,
+    /// The absolute path of the config file (file kind).
+    pub path: Option<String>,
+    pub exists: bool,
+    /// False when the agent is already connected exactly like this.
+    pub changed: bool,
+    /// Unified diff of the file, empty when unchanged.
+    pub diff: String,
+    /// The command to run (command kind).
+    pub command: Option<String>,
+    /// SHA-256 of the file as previewed; pass it back to apply so a changed file is refused.
+    pub base_hash: Option<String>,
+    /// Anything the user should know (an older vault-hq entry is replaced, …).
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigApplied {
+    pub agent_id: String,
+    pub path: String,
+    /// Where the previous file was copied, when there was one.
+    pub backup: Option<String>,
+    pub changed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct ScaffoldReport {
+    pub root: String,
+    pub vault_id: String,
+    pub name: String,
+    /// Vault-relative paths written (folders end with `/`).
+    pub created: Vec<String>,
+    /// Paths that were already there and left alone.
+    pub kept: Vec<String>,
+}
+
+/// A suggested place for a new vault.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct LocationSuggestion {
+    pub label: String,
+    pub path: String,
+    /// The folder is synced between Macs (iCloud Drive).
+    pub synced: bool,
+    pub note: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct KindCount {
+    pub kind: String,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct BrokenLink {
+    pub from: String,
+    pub target: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct Prop {
+    pub key: String,
+    pub value: String,
+}
+
+/// One change the import assistant proposes. Nothing happens unless it is ticked.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PlanAction {
+    /// Add the standard folders, AGENTS.md and templates (never overwrites).
+    #[serde(rename_all = "camelCase")]
+    CreateFolders { folders: Vec<String> },
+    /// Add missing frontmatter keys to a note, guarded by the hash it was analysed at.
+    #[serde(rename_all = "camelCase")]
+    AddFrontmatter {
+        rel: String,
+        base_hash: String,
+        add: Vec<Prop>,
+    },
+    /// Move a file or folder; refused when the target exists (folders merge, file by file).
+    #[serde(rename_all = "camelCase")]
+    Move { from: String, to: String },
+    /// Set `tags:` on an untagged note.
+    #[serde(rename_all = "camelCase")]
+    AddTags {
+        rel: String,
+        base_hash: String,
+        tags: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanItem {
+    pub id: String,
+    pub group: String,
+    pub summary: String,
+    pub ticked: bool,
+    pub reversible: bool,
+    pub action: PlanAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportPlan {
+    pub root: String,
+    pub items: Vec<PlanItem>,
+}
+
+/// What the import assistant found in an existing (Obsidian) vault.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportAnalysis {
+    pub root: String,
+    pub notes: u32,
+    pub no_frontmatter: u32,
+    pub incomplete_frontmatter: u32,
+    pub loose_root: Vec<String>,
+    pub unknown_folders: Vec<String>,
+    /// At most a few hundred, so a very broken vault still answers quickly.
+    pub broken_links: Vec<BrokenLink>,
+    pub broken_link_count: u32,
+    pub untagged: u32,
+    pub attachments: u32,
+    #[ts(type = "number")]
+    pub attachment_bytes: u64,
+    pub attachment_kinds: Vec<KindCount>,
+    pub unreadable: Vec<String>,
+    /// Folders HQ expects that are missing.
+    pub missing_folders: Vec<String>,
+    pub plan: ImportPlan,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct Moved {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedItem {
+    pub id: String,
+    pub reason: String,
+}
+
+/// The result of `import_apply` (and `import_undo`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct RestructureReport {
+    pub applied: Vec<String>,
+    pub skipped: Vec<SkippedItem>,
+    pub moved: Vec<Moved>,
+    pub edited: Vec<String>,
+    pub created: Vec<String>,
+    /// Vault-relative path of the undo journal (`.vault-hq/import-….json`).
+    pub journal: Option<String>,
+}
 
 // ---- F bookmarks ------------------------------------------------------------------------
 

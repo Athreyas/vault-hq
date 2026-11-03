@@ -23,6 +23,7 @@ pub const COMMANDS: &[&str] = &[
     "note_save",
     "note_create",
     "note_move",
+    "note_archive",
     "templates_list",
     // capture (A)
     "capture",
@@ -75,6 +76,10 @@ pub const COMMANDS: &[&str] = &[
     "agent_config_apply",
     "import_analyze",
     "import_apply",
+    // onboarding (E), beyond SPEC 10: vault locations, the vault's notes, undoing an import
+    "onboarding_locations",
+    "onboarding_scaffold",
+    "import_undo",
     // widgets (W)
     "widgets_catalog",
     "widgets_layout_get",

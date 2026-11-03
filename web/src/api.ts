@@ -1,12 +1,31 @@
 // The only place the UI talks to the app: Tauri `invoke` for commands, `listen` for
-// events (SPEC 10). Everything is typed: generated bindings where a stream has exported
-// its types, ./shapes.ts where it has not yet. A command that is not in this build
-// comes back as an HqError of kind "Unavailable", so a view can say so and carry on.
+// events (SPEC 10). Everything is typed from the generated bindings in ./bindings, never
+// hand-written shapes, so a Rust type change breaks the typecheck, not the window.
+// A command that is not in this build comes back as an HqError of kind "Unavailable",
+// so a view can say so and carry on.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppStatus } from "./bindings/AppStatus.ts";
+import type { CaptureKind } from "./bindings/CaptureKind.ts";
+import type { CaptureResult } from "./bindings/CaptureResult.ts";
+import type { Card } from "./bindings/Card.ts";
+import type { CardAction } from "./bindings/CardAction.ts";
+import type { Day } from "./bindings/Day.ts";
+import type { DecideResult } from "./bindings/DecideResult.ts";
+import type { Home } from "./bindings/Home.ts";
+import type { InboxItem } from "./bindings/InboxItem.ts";
+import type { MoveResult } from "./bindings/MoveResult.ts";
+import type { Need } from "./bindings/Need.ts";
+import type { NoteFilter } from "./bindings/NoteFilter.ts";
+import type { NoteInput } from "./bindings/NoteInput.ts";
+import type { NoteSummary } from "./bindings/NoteSummary.ts";
+import type { NoteView } from "./bindings/NoteView.ts";
+import type { SaveResult } from "./bindings/SaveResult.ts";
+import type { TemplateInfo } from "./bindings/TemplateInfo.ts";
+import type { VaultCandidate } from "./bindings/VaultCandidate.ts";
+import type { VaultLayout } from "./bindings/VaultLayout.ts";
 import type { Current } from "./bindings/Current.ts";
 import type { JobProgress } from "./bindings/JobProgress.ts";
 import type { Settings } from "./bindings/Settings.ts";
@@ -27,32 +46,47 @@ import type { WidgetCatalogEntry } from "./bindings/WidgetCatalogEntry.ts";
 import type { WidgetData } from "./bindings/WidgetData.ts";
 import type { WidgetKind } from "./bindings/WidgetKind.ts";
 import type { WidgetLayout } from "./bindings/WidgetLayout.ts";
-import type * as S from "./shapes.ts";
+import type { AskEnvelope } from "./bindings/AskEnvelope.ts";
+import type { Bookmark } from "./bindings/Bookmark.ts";
+import type { Conversation } from "./bindings/Conversation.ts";
+import type { ConversationSummary } from "./bindings/ConversationSummary.ts";
+import type { OllamaStatus } from "./bindings/OllamaStatus.ts";
+import type { Recommendation } from "./bindings/Recommendation.ts";
+import type { SearchHit } from "./bindings/SearchHit.ts";
+import type { SearchResult } from "./bindings/SearchResult.ts";
+import type { SearchScope } from "./bindings/SearchScope.ts";
 
 export type { AppStatus, Current, JobProgress, Settings, Source, Theme, VaultChanged, VaultInfo };
 export type { Priority, StatsQuery, Task, TaskGroups, TaskImportReport, TaskInput, TaskPatch, TaskQuery, TaskStats };
 export type {
-  AskEvent,
   CaptureKind,
+  CaptureResult,
   Card,
-  ConversationSummary,
+  CardAction,
   Day,
+  DecideResult,
   Home,
   InboxItem,
+  MoveResult,
   Need,
-  NoteCreateInput,
-  NoteId,
+  NoteFilter,
+  NoteInput,
   NoteSummary,
   NoteView,
-  NotesFilter,
-  OllamaStatus,
-  Recommendation,
   SaveResult,
-  SearchHit,
-  SearchScope,
-  Template,
+  TemplateInfo,
   VaultCandidate,
-} from "./shapes.ts";
+  VaultLayout,
+};
+/** Older names the views use for the same A types. */
+export type NotesFilter = NoteFilter;
+export type NoteCreateInput = NoteInput;
+export type Template = TemplateInfo;
+export type { AskEnvelope, Bookmark, Conversation, ConversationSummary, OllamaStatus, Recommendation, SearchHit, SearchResult, SearchScope };
+/** `ask://event` payloads. */
+export type AskEvent = AskEnvelope;
+/** `"<vaultId>:<vault-relative path>"`, how the UI names a note. */
+export type NoteId = string;
 
 // ---- errors ------------------------------------------------------------------------------
 
@@ -107,27 +141,31 @@ interface Commands {
   // vaults
   vaults_list: [None, VaultInfo[]];
   vault_add: [{ path: string }, VaultInfo];
-  vault_create: [{ path: string; name: string; layout: string }, VaultInfo];
-  vault_remove: [{ id: string }, null];
-  vault_set_primary: [{ id: string }, null];
-  vault_candidates: [None, S.VaultCandidate[]];
+  vault_create: [{ path: string; name: string; layout?: VaultLayout }, VaultInfo];
+  vault_remove: [{ id: string }, VaultInfo[]];
+  vault_set_primary: [{ id: string }, VaultInfo[]];
+  vault_candidates: [None, VaultCandidate[]];
   // notes
-  notes_list: [{ filter: S.NotesFilter }, S.NoteSummary[]];
-  note_get: [{ ref: string }, S.NoteView];
+  notes_list: [{ filter?: NoteFilter }, NoteSummary[]];
+  /** `reference`: a note id, or a wiki-style target resolved in the primary vault first. */
+  note_get: [{ reference: string }, NoteView];
   note_source: [{ id: string }, Source];
-  note_save: [{ id: string; text: string; base: string }, S.SaveResult];
-  note_create: [{ input: S.NoteCreateInput }, S.NoteView];
-  note_move: [{ id: string; to: string }, S.NoteSummary];
-  templates_list: [None, S.Template[]];
+  /** A stale `base` rejects with an HqError of kind "Conflict" carrying `current`. */
+  note_save: [{ id: string; text: string; base: string }, SaveResult];
+  note_create: [{ input: NoteInput }, NoteView];
+  /** `dryRun: true` lists the notes whose links would change, writing nothing. */
+  note_move: [{ id: string; to: string; dryRun?: boolean }, MoveResult];
+  note_archive: [{ id: string }, MoveResult];
+  templates_list: [None, TemplateInfo[]];
   // capture
-  capture: [{ text: string; kind?: S.CaptureKind; vault?: string }, unknown];
+  capture: [{ text: string; kind?: CaptureKind; vault?: string }, CaptureResult];
   // home
-  home: [{ date?: string }, S.Home];
-  days: [{ from: string; span: number }, S.Day[]];
-  needs: [None, S.Need[]];
-  needs_decide: [{ id: string; outcome: string; why: string }, unknown];
-  inbox: [None, S.InboxItem[]];
-  inbox_archive: [{ id: string }, null];
+  home: [{ date?: string }, Home];
+  days: [{ from: string; span: number }, Day[]];
+  needs: [None, Need[]];
+  needs_decide: [{ id: string; outcome: string; why?: string }, DecideResult];
+  inbox: [None, InboxItem[]];
+  inbox_archive: [{ id: string }, MoveResult];
   // tasks
   tasks_query: [{ query: TaskQuery }, TaskGroups];
   task_add: [{ input: TaskInput }, Task];
@@ -140,15 +178,16 @@ interface Commands {
   tasks_stats: [{ query: StatsQuery }, TaskStats];
   tasks_import_taskwarrior: [{ dryRun: boolean }, TaskImportReport];
   // search
-  search: [{ q: string; scope: S.SearchScope }, S.SearchHit[]];
-  ask_start: [{ question: string; scope: S.SearchScope; conversation?: string }, string];
-  ask_cancel: [{ id: string }, null];
-  conversations_list: [None, S.ConversationSummary[]];
+  search: [{ q: string; scope?: SearchScope }, SearchResult];
+  ask_start: [{ question: string; scope?: SearchScope; conversation?: string }, string];
+  ask_cancel: [{ id: string }, boolean];
+  conversations_list: [None, ConversationSummary[]];
+  conversation_get: [{ id: string }, Conversation];
   // ai
-  ollama_status: [None, S.OllamaStatus];
-  ollama_recommend: [None, S.Recommendation];
+  ollama_status: [None, OllamaStatus];
+  ollama_recommend: [None, Recommendation];
   // bookmarks
-  bookmark_add: [{ url: string; note?: string }, unknown];
+  bookmark_add: [{ url: string; note?: string }, Bookmark];
   // ---- streams: add the commands your views call below ----
   // widgets (W)
   widgets_catalog: [None, WidgetCatalogEntry[]];
@@ -228,20 +267,21 @@ export const api = {
 
   vaults: () => call("vaults_list", none),
   vaultAdd: (path: string) => call("vault_add", { path }),
-  vaultCreate: (path: string, name: string, layout = "standard") => call("vault_create", { path, name, layout }),
+  vaultCreate: (path: string, name: string, layout: VaultLayout = "default") => call("vault_create", { path, name, layout }),
   vaultRemove: (id: string) => call("vault_remove", { id }),
   vaultSetPrimary: (id: string) => call("vault_set_primary", { id }),
   vaultCandidates: () => call("vault_candidates", none),
 
-  notes: (filter: S.NotesFilter = {}) => call("notes_list", { filter }),
-  note: (ref: string) => call("note_get", { ref }),
+  notes: (filter: NoteFilter = {}) => call("notes_list", { filter }),
+  note: (reference: string) => call("note_get", { reference }),
   noteSource: (id: string) => call("note_source", { id }),
   noteSave: (id: string, text: string, base: string) => call("note_save", { id, text, base }),
-  noteCreate: (input: S.NoteCreateInput) => call("note_create", { input }),
-  noteMove: (id: string, to: string) => call("note_move", { id, to }),
+  noteCreate: (input: NoteInput) => call("note_create", { input }),
+  noteMove: (id: string, to: string, dryRun = false) => call("note_move", { id, to, dryRun }),
+  noteArchive: (id: string) => call("note_archive", { id }),
   templates: () => call("templates_list", none),
 
-  capture: (text: string, kind?: S.CaptureKind, vault?: string) => call("capture", { text, kind, vault }),
+  capture: (text: string, kind?: CaptureKind, vault?: string) => call("capture", { text, kind, vault }),
 
   home: (date?: string) => call("home", { date }),
   days: (from: string, span: number) => call("days", { from, span }),
@@ -263,8 +303,8 @@ export const api = {
   tasksStats: (query: Partial<StatsQuery> = {}) => call("tasks_stats", { query: { days: null, project: null, tag: null, vaults: [], today: null, ...query } }),
   tasksImportTaskwarrior: (dryRun: boolean) => call("tasks_import_taskwarrior", { dryRun }),
 
-  search: (q: string, scope: S.SearchScope = {}) => call("search", { q, scope }),
-  askStart: (question: string, scope: S.SearchScope = {}, conversation?: string) => call("ask_start", { question, scope, conversation }),
+  search: (q: string, scope?: SearchScope) => call("search", { q, scope }),
+  askStart: (question: string, scope?: SearchScope, conversation?: string) => call("ask_start", { question, scope, conversation }),
   askCancel: (id: string) => call("ask_cancel", { id }),
   conversations: () => call("conversations_list", none),
 
@@ -278,7 +318,7 @@ export const api = {
 
 interface Events {
   "vault://changed": VaultChanged;
-  "ask://event": S.AskEvent;
+  "ask://event": AskEnvelope;
   "jobs://progress": JobProgress;
   "capture://open": null;
   /** A reminder was clicked: show this task (its key) in the Tasks view. */
@@ -365,6 +405,13 @@ export function useCall<T>(load: () => Promise<T>, key: string, opts: { refreshM
 
 /** A note in HQ's reader. Takes a note id or a bare [[link]] target. */
 export const noteUrl = (ref: string) => `#/notes/${encodeURIComponent(ref)}`;
+
+/** Where a Home card's button goes (the core names a view, the UI owns the routes). */
+export function cardHref(a: CardAction): string {
+  if (a.view === "note" && a.arg) return noteUrl(a.arg);
+  if (a.view === "day") return a.arg ? `#/days/${a.arg}` : "#/days";
+  return `#/${a.view}`;
+}
 
 export function iso(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

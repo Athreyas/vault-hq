@@ -4,6 +4,7 @@ import Ask from "./components/Ask.tsx";
 import Bookmarks from "./components/Bookmarks.tsx";
 import Create, { type CreateKind } from "./components/Create.tsx";
 import Days from "./components/Days.tsx";
+import ErrorBoundary from "./components/ErrorBoundary.tsx";
 import Hints from "./components/Hints.tsx";
 import Home from "./components/Home.tsx";
 import Inbox from "./components/Inbox.tsx";
@@ -13,6 +14,8 @@ import Palette from "./components/Palette.tsx";
 import Settings from "./components/Settings.tsx";
 import Tasks from "./components/Tasks.tsx";
 import TopBar from "./components/TopBar.tsx";
+import { onboardingState, setStep } from "./api/onboarding.ts";
+import Onboarding from "./components/onboarding/Onboarding.tsx";
 
 // ---- routes: streams add a view name below and its element in <main> ----
 export const VIEWS = ["home", "needs", "days", "tasks", "inbox", "notes", "ask", "bookmarks"] as const;
@@ -78,6 +81,8 @@ export default function App() {
   // C reminders: the task a clicked notification is about
   const [focusTask, setFocusTask] = useState<string | null>(null);
   const status = useCall<AppStatus>(api.status, "status", { refreshMs: 60_000 });
+  // first run: the setup wizard until onboarding is done; Settings can bring it back
+  const [setup, setSetup] = useState(false);
   const counts = useCall<Counts>(loadCounts, "counts", { refreshMs: 60_000 });
   const reloadStatus = status.reload;
   const reloadCounts = counts.reload;
@@ -95,6 +100,22 @@ export default function App() {
       window.removeEventListener("hashchange", onHash);
       clearInterval(clock);
     };
+  }, []);
+
+  useEffect(() => {
+    onboardingState().then(
+      (o) => setSetup(!o.done),
+      () => setSetup(false),
+    );
+    const rerun = () => {
+      setSettings(false);
+      setStep("welcome").then(
+        () => setSetup(true),
+        () => setSetup(true),
+      );
+    };
+    window.addEventListener("hq:setup", rerun);
+    return () => window.removeEventListener("hq:setup", rerun);
   }, []);
 
   const notify: Notify = useCallback((message, tone = "ok") => {
@@ -150,6 +171,12 @@ export default function App() {
     };
   }, []);
 
+  // The stage is one scroller shared by every view: a new view starts at its top, not
+  // at the scroll position the previous view left (which hid the Days header).
+  useEffect(() => {
+    document.getElementById("main")?.scrollTo({ top: 0 });
+  }, [route.view]);
+
   // Global keys. Ctrl/⌘K works everywhere, including inside inputs; the single-key
   // shortcuts only fire when no field has focus and no dialog is open.
   useEffect(() => {
@@ -170,7 +197,7 @@ export default function App() {
         if (typing(e.target)) (e.target as HTMLElement).blur();
         return;
       }
-      if (palette || settings || create || typing(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (setup || palette || settings || create || typing(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
       const n = Number(e.key);
       if (n >= 1 && n <= VIEWS.length) go(`#/${VIEWS[n - 1]}`);
       else if (e.key === "/") {
@@ -184,28 +211,53 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, palette, settings, create, startCreate]);
+  }, [go, setup, palette, settings, create, startCreate]);
+
+  if (setup) {
+    return (
+      <Onboarding
+        onFinish={() => {
+          setSetup(false);
+          reloadStatus();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="app">
       <TopBar now={now} route={route} status={status.data} counts={counts.data} onCreate={startCreate} />
       <main className="stage" id="main">
-        {route.view === "home" && <Home date={route.date} onAsk={ask} />}
-        {route.view === "needs" && <NeedsYou notify={notify} onChange={changed} />}
-        {route.view === "days" && <Days date={route.date} span={route.span} notify={notify} />}
-        {route.view === "tasks" && <Tasks notify={notify} onChange={changed} focus={focusTask} />}
-        {route.view === "inbox" && <Inbox notify={notify} onChange={changed} />}
-        {route.view === "notes" && <Notes note={route.note} notify={notify} />}
-        {route.view === "ask" && <Ask req={askReq} suggestions={[]} />}
-        {route.view === "bookmarks" && (
-          <Bookmarks notify={(m, kind) => notify(m, kind === "error" ? "error" : "ok")} onOpenNote={(id) => go(`#/notes/${encodeURIComponent(id)}`)} />
-        )}
-        {/* ---- streams: add view elements above this line ---- */}
+        <ErrorBoundary name="view" resetKey={`${route.view}/${route.note ?? ""}`}>
+          {route.view === "home" && <Home date={route.date} onAsk={ask} />}
+          {route.view === "needs" && <NeedsYou notify={notify} onChange={changed} />}
+          {route.view === "days" && <Days date={route.date} span={route.span} notify={notify} />}
+          {route.view === "tasks" && <Tasks notify={notify} onChange={changed} focus={focusTask} />}
+          {route.view === "inbox" && <Inbox notify={notify} onChange={changed} />}
+          {route.view === "notes" && <Notes note={route.note} notify={notify} />}
+          {route.view === "ask" && <Ask req={askReq} suggestions={[]} />}
+          {route.view === "bookmarks" && (
+            <Bookmarks notify={(m, kind) => notify(m, kind === "error" ? "error" : "ok")} onOpenNote={(id) => go(`#/notes/${encodeURIComponent(id)}`)} />
+          )}
+          {/* ---- streams: add view elements above this line ---- */}
+        </ErrorBoundary>
       </main>
       <Hints view={route.view} />
-      {palette && <Palette onClose={() => setPalette(false)} go={go} ask={ask} notify={notify} onSaved={changed} openSettings={() => setSettings(true)} onCreate={startCreate} />}
-      {settings && <Settings status={status.data} onClose={() => setSettings(false)} notify={notify} onChange={changed} />}
-      {create && <Create request={create} status={status.data} onClose={() => setCreate(null)} notify={notify} go={go} onSaved={changed} />}
+      {palette && (
+        <ErrorBoundary name="palette" onClose={() => setPalette(false)}>
+          <Palette onClose={() => setPalette(false)} go={go} ask={ask} notify={notify} onSaved={changed} openSettings={() => setSettings(true)} onCreate={startCreate} />
+        </ErrorBoundary>
+      )}
+      {settings && (
+        <ErrorBoundary name="settings panel" onClose={() => setSettings(false)}>
+          <Settings status={status.data} onClose={() => setSettings(false)} notify={notify} onChange={changed} />
+        </ErrorBoundary>
+      )}
+      {create && (
+        <ErrorBoundary name="create dialog" onClose={() => setCreate(null)}>
+          <Create request={create} status={status.data} onClose={() => setCreate(null)} notify={notify} go={go} onSaved={changed} />
+        </ErrorBoundary>
+      )}
       <div className={`toast ${toast ? "is-shown" : ""} ${toast?.tone === "error" ? "is-error" : ""}`} role="status" aria-live="polite">
         {toast?.message}
       </div>
