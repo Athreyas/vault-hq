@@ -23,6 +23,10 @@ import type { TaskStats } from "./bindings/TaskStats.ts";
 import type { Theme } from "./bindings/Theme.ts";
 import type { VaultChanged } from "./bindings/VaultChanged.ts";
 import type { VaultInfo } from "./bindings/VaultInfo.ts";
+import type { WidgetCatalogEntry } from "./bindings/WidgetCatalogEntry.ts";
+import type { WidgetData } from "./bindings/WidgetData.ts";
+import type { WidgetKind } from "./bindings/WidgetKind.ts";
+import type { WidgetLayout } from "./bindings/WidgetLayout.ts";
 import type * as S from "./shapes.ts";
 
 export type { AppStatus, Current, JobProgress, Settings, Source, Theme, VaultChanged, VaultInfo };
@@ -146,6 +150,11 @@ interface Commands {
   // bookmarks
   bookmark_add: [{ url: string; note?: string }, unknown];
   // ---- streams: add the commands your views call below ----
+  // widgets (W)
+  widgets_catalog: [None, WidgetCatalogEntry[]];
+  widgets_layout_get: [None, WidgetLayout];
+  widgets_layout_set: [{ layout: WidgetLayout }, WidgetLayout];
+  widget_data: [{ kind: WidgetKind; config: Record<string, unknown> }, WidgetData];
 }
 
 export type CommandName = keyof Commands;

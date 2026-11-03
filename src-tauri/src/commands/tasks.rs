@@ -74,6 +74,16 @@ impl TasksState {
         g.save();
     }
 
+    /// Every task in the open vaults (W's task widgets read this), scanning first if
+    /// nothing is indexed yet.
+    pub fn all_tasks(&self) -> Result<Vec<Task>> {
+        let mut g = self.lock()?;
+        if g.vaults.is_empty() {
+            return Err(Error::Unavailable("No vault is open.".into()));
+        }
+        Ok(g.index().tasks().cloned().collect())
+    }
+
     fn lock(&self) -> Result<MutexGuard<'_, Inner>> {
         self.inner
             .lock()

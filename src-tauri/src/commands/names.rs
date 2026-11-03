@@ -73,6 +73,7 @@ pub const COMMANDS: &[&str] = &[
     "import_analyze",
     "import_apply",
     // widgets (W)
+    "widgets_catalog",
     "widgets_layout_get",
     "widgets_layout_set",
     "widget_data",

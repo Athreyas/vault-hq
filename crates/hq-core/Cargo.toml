@@ -23,6 +23,8 @@ ureq = { version = "3", default-features = false, features = ["json", "native-tl
 plist = "1"
 rusqlite = { version = "0.41", features = ["bundled"] }
 url = "2"
+# W widgets (sysinfo; its json_status widget shares ureq above)
+sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
 
 [dev-dependencies]
 tempfile = "3"
