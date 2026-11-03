@@ -1,70 +1,108 @@
-//! `Backend` over hq-core, for the vaults the app knows.
+//! `Backend` over `hq_core::hq::Hq`: the same registry, notes, capture, days, tasks,
+//! search and bookmark code the app runs, so an agent's write and a click in the app make
+//! the same file change.
 //!
-//! Real today (Phase 0 foundation): vault_info, read_note, list_notes, create_note,
-//! append_to_note, capture, log, both resources, and a plain keyword `search`.
-//!
-//! TODO(integrator): wire these to the streams that own them, then delete the stubs:
-//! - `search`      → stream C `hq_core::search` (BM25 + vectors, SPEC 6); the keyword scan
-//!   below is a stand-in so agents get something useful meanwhile.
-//! - `ask`         → stream C, non-streaming ask (collect the tokens, return the sources).
-//! - `add_task`, `update_task`, `list_tasks` → stream B `hq_core::tasks` (add / update /
-//!   query); map `TaskPatch` and `ListTasksInput` onto B's types.
-//! - `add_bookmark` → stream F `hq_core::bookmarks` (`bookmark_add(url, note)`).
-//! - `read_note` by `ref` → stream A's link resolver once `notes.rs` has one; `resolve_ref`
-//!   here follows SPEC 3's order meanwhile.
-//! - `create_note` templates (`_templates/*.md`) → stream A's `note_create`.
-//! - `capture` / `log` → stream A's `capture.rs` / `days.rs` once they exist, so the
-//!   inbox and daily-note formats live in one place.
+//! The app watches its vaults; this process does not, so every call starts by dropping
+//! the cached scans (`Hq::invalidate`). A read never sees a stale note, and a hash an
+//! agent gets is the hash on disk.
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use hq_core::frontmatter;
-use hq_core::locks;
-use hq_core::settings::{self, Settings};
-use hq_core::types::{note_id, split_note_id};
-use hq_core::util;
-use hq_core::vault::{scan, Note, Vault};
+use hq_core::bookmarks::{enrich, store};
+use hq_core::hq::Hq;
+use hq_core::ollama::{Chat, Models};
+use hq_core::search::{self, ask, Index, Semantic};
+use hq_core::settings::{Settings, Store, VaultEntry};
+use hq_core::tasks::{mutate, query, resolve_today, TaskIndex};
+use hq_core::types::{
+    split_note_id, AskEvent, NoteFilter, NoteInput, NoteView, ScopeKinds, SearchResult,
+    SearchScope, Task, TaskGroups, TaskInput, TaskPatch, TaskStatus,
+};
+use hq_core::vault::{layout, registry, Vault};
+use hq_core::{capture, days, frontmatter, locks, notes, util};
 use hq_core::{Error, Result};
 
 use crate::backend::*;
 
 pub struct CoreBackend {
-    vaults: Vec<Vault>,
-    primary: usize,
+    hq: Hq,
+    /// The search index, brought up to date per call (unchanged vaults are not re-cut).
+    index: Mutex<Arc<Index>>,
+    /// Fetch a new bookmark's page title (one capped request, as the app does).
+    fetch_pages: bool,
+    /// The private settings folder `with_vaults` made; removed with the backend.
+    _temp: Option<TempDir>,
 }
 
-const INBOX: &str = "00-Inbox";
-const DAILY: &str = "09-Planning/Daily";
-const AGENT_LOG: &str = "Agent log";
+/// A folder removed on drop.
+struct TempDir(PathBuf);
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
 
 impl CoreBackend {
-    /// `primary` is a vault id; the first vault is primary when it is missing or unknown.
-    pub fn new(vaults: Vec<Vault>, primary: Option<&str>) -> Self {
-        let primary = primary
-            .and_then(|p| vaults.iter().position(|v| v.id == p))
-            .unwrap_or(0);
-        CoreBackend { vaults, primary }
-    }
-
-    /// The vaults in the app's settings, minus blocked or missing ones (logged to stderr).
-    pub fn from_settings(s: &Settings) -> Self {
-        let mut vaults = Vec::new();
-        for entry in &s.vaults {
-            let dir = Path::new(&entry.path);
-            if let Some(why) = settings::blocked(s, dir) {
-                eprintln!("vault-hq mcp: skipping a vault: {why}");
-                continue;
-            }
-            match Vault::open(dir) {
-                Ok(v) => vaults.push(v),
-                Err(e) => eprintln!("vault-hq mcp: skipping vault \"{}\": {e}", entry.name),
-            }
+    pub fn from_hq(hq: Hq) -> Self {
+        CoreBackend {
+            hq,
+            index: Mutex::new(Arc::new(Index::new())),
+            fetch_pages: true,
+            _temp: None,
         }
-        CoreBackend::new(vaults, s.primary_vault.as_deref())
     }
 
-    pub fn vaults(&self) -> &[Vault] {
-        &self.vaults
+    /// The app's own state: settings in `support`, caches in `cache`. Settings that don't
+    /// parse leave the server running with no vaults, as the app does, never rewriting them.
+    pub fn open(support: &Path, cache: &Path) -> Self {
+        let hq = Hq::open(support, cache).unwrap_or_else(|e| {
+            eprintln!("vault-hq mcp: {e}");
+            Hq::degraded(support, cache, &e)
+        });
+        Self::from_hq(hq)
+    }
+
+    /// Serve exactly these folders (the first is primary) with `base`'s other settings:
+    /// its blocklist (checked on every folder), model server and models. Used by
+    /// `--vault` and tests; the app's settings file is not touched.
+    pub fn with_vaults(paths: &[PathBuf], mut base: Settings, cache: &Path) -> Result<Self> {
+        let mut entries = Vec::new();
+        for p in paths {
+            let abs = std::path::absolute(p)?;
+            let v = registry::open_checked(&base, &abs)?;
+            entries.push(VaultEntry {
+                id: v.id,
+                path: abs.to_string_lossy().into_owned(),
+                name: v.name,
+            });
+        }
+        base.primary_vault = entries.first().map(|e| e.id.clone());
+        base.vaults = entries;
+        let dir = std::env::temp_dir().join(format!("vault-hq-mcp-{}", util::random_hex(8)));
+        std::fs::create_dir_all(&dir)?;
+        let temp = TempDir(dir);
+        Store::new(&temp.0).save(&base)?;
+        let hq = Hq::open(&temp.0, cache)?;
+        Ok(CoreBackend {
+            _temp: Some(temp),
+            ..Self::from_hq(hq)
+        })
+    }
+
+    /// No page fetch for new bookmarks (tests, offline use).
+    pub fn without_page_fetch(mut self) -> Self {
+        self.fetch_pages = false;
+        self
+    }
+
+    pub fn hq(&self) -> &Hq {
+        &self.hq
     }
 
     fn none_yet() -> Error {
@@ -73,22 +111,41 @@ impl CoreBackend {
         )
     }
 
-    /// By id or (case-insensitive) name; `None` = the primary vault.
-    fn vault(&self, which: Option<&str>) -> Result<&Vault> {
-        if self.vaults.is_empty() {
+    /// Start every call from the disk, not a cached scan.
+    fn fresh(&self) {
+        self.hq.invalidate(None);
+    }
+
+    /// The open vaults, primary first.
+    fn vaults(&self) -> Result<Vec<Vault>> {
+        let reg = self.hq.registry();
+        let mut all = reg.vaults().to_vec();
+        if all.is_empty() {
             return Err(Self::none_yet());
         }
+        if let Some(i) = reg
+            .primary_id()
+            .and_then(|p| all.iter().position(|v| v.id == p))
+        {
+            let p = all.remove(i);
+            all.insert(0, p);
+        }
+        Ok(all)
+    }
+
+    /// By id or (case-insensitive) name; `None` = the primary vault.
+    fn vault(&self, which: Option<&str>) -> Result<Vault> {
+        let all = self.vaults()?;
         match which.map(str::trim).filter(|w| !w.is_empty()) {
-            None => Ok(&self.vaults[self.primary]),
-            Some(w) => self
-                .vaults
+            None => Ok(all[0].clone()),
+            Some(w) => all
                 .iter()
                 .find(|v| v.id == w || v.name.eq_ignore_ascii_case(w))
+                .cloned()
                 .ok_or_else(|| {
                     Error::NotFound(format!(
                         "No vault \"{w}\". Known: {}",
-                        self.vaults
-                            .iter()
+                        all.iter()
                             .map(|v| format!("{} ({})", v.name, v.id))
                             .collect::<Vec<_>>()
                             .join(", ")
@@ -97,158 +154,72 @@ impl CoreBackend {
         }
     }
 
-    /// The vaults a call covers: one if named, else all of them, primary first.
-    fn vaults_for(&self, which: Option<&str>) -> Result<Vec<&Vault>> {
-        if which.is_some_and(|w| !w.trim().is_empty()) {
-            return Ok(vec![self.vault(which)?]);
+    fn vault_id(&self, which: Option<&str>) -> Result<Option<String>> {
+        match which.map(str::trim).filter(|w| !w.is_empty()) {
+            None => Ok(None),
+            Some(w) => Ok(Some(self.vault(Some(w))?.id)),
         }
-        if self.vaults.is_empty() {
+    }
+
+    fn scope(&self, s: &Scope) -> Result<SearchScope> {
+        Ok(SearchScope {
+            vaults: s
+                .vaults
+                .iter()
+                .map(|w| self.vault(Some(w)).map(|v| v.id))
+                .collect::<Result<_>>()?,
+            days: s.days,
+            until: None,
+            kinds: match s.kind {
+                ScopeKind::All => ScopeKinds::Both,
+                ScopeKind::Notes => ScopeKinds::Notes,
+                ScopeKind::Bookmarks => ScopeKinds::Bookmarks,
+            },
+        })
+    }
+
+    /// The search index over the current scans.
+    fn search_index(&self) -> Result<Arc<Index>> {
+        let snaps = self.hq.snapshots();
+        if snaps.is_empty() {
             return Err(Self::none_yet());
         }
-        let mut all: Vec<&Vault> = vec![&self.vaults[self.primary]];
-        all.extend(
-            self.vaults
-                .iter()
-                .enumerate()
-                .filter(|(i, _)| *i != self.primary)
-                .map(|(_, v)| v),
-        );
-        Ok(all)
+        let ids: Vec<String> = snaps.iter().map(|s| s.vault.id.clone()).collect();
+        let mut guard = lock(&self.index);
+        let idx = Arc::make_mut(&mut guard);
+        idx.retain_vaults(&ids);
+        for s in &snaps {
+            idx.update_vault(&s.vault.id, &s.scan.notes);
+        }
+        Ok(guard.clone())
     }
 
-    /// A note id to its vault and file. Only existing `.md` files outside hidden folders.
-    fn locate(&self, id: &str) -> Result<(&Vault, String, PathBuf)> {
-        let (vid, rel) = split_note_id(id)
-            .ok_or_else(|| Error::Invalid(format!("\"{id}\" is not a note id")))?;
-        let vault = self
-            .vaults
-            .iter()
-            .find(|v| v.id == vid)
-            .ok_or_else(|| Error::NotFound(format!("No vault with id {vid}")))?;
-        let path = safe_path(vault, rel)?;
-        if !rel.ends_with(".md") || !path.is_file() {
-            return Err(Error::NotFound(format!(
-                "No note {rel} in {}. Use search or list_notes for ids.",
-                vault.name
-            )));
-        }
-        Ok((vault, rel.to_string(), path))
-    }
-
-    /// SPEC 3's link resolution: exact path, path + .md, case-insensitive path, path
-    /// suffix, then stem. Vaults in `vaults_for` order; first hit wins.
-    fn resolve_ref(&self, reference: &str, vault: Option<&str>) -> Result<String> {
-        let target = clean_ref(reference);
-        if target.is_empty() {
-            return Err(Error::Invalid(format!("\"{reference}\" is not a link")));
-        }
-        let lower = target.to_lowercase();
-        let with_md = if lower.ends_with(".md") {
-            target.clone()
-        } else {
-            format!("{target}.md")
+    /// A task index built from disk, and B's mutation context over it.
+    fn with_tasks<T>(&self, f: impl FnOnce(&mut mutate::Ctx) -> Result<T>) -> Result<T> {
+        let vaults = self.vaults()?;
+        let mut index = TaskIndex::build(&vaults);
+        let mut ctx = mutate::Ctx {
+            vaults: &vaults,
+            index: &mut index,
+            today: resolve_today(None)?,
         };
-        let lower_md = with_md.to_lowercase();
-        for v in self.vaults_for(vault)? {
-            let notes = scan(v).notes;
-            let rels: Vec<&str> = notes.iter().map(|n| n.rel.as_str()).collect();
-            let hit = rels
-                .iter()
-                .find(|r| **r == target)
-                .or_else(|| rels.iter().find(|r| **r == with_md))
-                .or_else(|| rels.iter().find(|r| r.to_lowercase() == lower_md))
-                .or_else(|| {
-                    rels.iter()
-                        .find(|r| r.to_lowercase().ends_with(&format!("/{lower_md}")))
-                })
-                .or_else(|| {
-                    notes
-                        .iter()
-                        .find(|n| n.stem.to_lowercase() == lower.trim_end_matches(".md"))
-                        .map(|n| &n.rel)
-                        .and_then(|r| rels.iter().find(|x| **x == r.as_str()))
-                });
-            if let Some(rel) = hit {
-                return Ok(note_id(&v.id, rel));
-            }
-        }
-        Err(Error::NotFound(format!(
-            "No note matches \"{reference}\". Try search."
-        )))
+        let out = f(&mut ctx);
+        self.hq.invalidate(None);
+        out
     }
 }
 
-/// `[[garden#Plan|the garden]]` → `garden`.
-fn clean_ref(r: &str) -> String {
-    let r = r.trim();
-    let r = r.strip_prefix('!').unwrap_or(r);
-    let r = r
-        .strip_prefix("[[")
-        .and_then(|x| x.strip_suffix("]]"))
-        .unwrap_or(r);
-    let r = r.split('|').next().unwrap_or("");
-    let r = r.split('#').next().unwrap_or("");
-    r.trim().trim_start_matches("./").to_string()
-}
-
-/// A vault-relative path for reading or writing: inside the vault, and never in a hidden
-/// folder (`.vault-hq/`, `.obsidian/`, `.git/`) where notes don't live.
-fn safe_path(vault: &Vault, rel: &str) -> Result<PathBuf> {
-    let p = vault.resolve_rel(rel)?;
-    let hidden = Path::new(rel)
-        .components()
-        .any(|c| matches!(c, Component::Normal(s) if s.to_string_lossy().starts_with('.')));
-    if hidden {
+/// Notes live in the vault's regular folders; HQ's own and editors' folders are off limits.
+fn check_folder(folder: &str) -> Result<()> {
+    if folder
+        .split('/')
+        .any(|c| c.starts_with('.') || c.eq_ignore_ascii_case("_templates"))
+    {
         return Err(Error::Denied(format!(
-            "{rel} is in a hidden folder; notes live in the vault's regular folders"
+            "{folder} is not a notes folder (hidden folders and _templates are managed by the app)."
         )));
     }
-    Ok(p)
-}
-
-/// The full file a `NoteOut` was read from is not kept; resources read the file again.
-fn read_text(path: &Path) -> Result<(String, String)> {
-    locks::read(path)
-}
-
-fn local_date(mtime: i64) -> String {
-    use chrono::TimeZone;
-    chrono::Local
-        .timestamp_opt(mtime, 0)
-        .single()
-        .map(|d| d.format("%Y-%m-%d").to_string())
-        .unwrap_or_default()
-}
-
-/// The date a note counts as last touched: `updated:`, else `created:`, else its mtime.
-fn note_date(n: &Note) -> String {
-    n.props
-        .get("updated")
-        .or_else(|| n.props.get("created"))
-        .filter(|d| crate::tools::is_date(d))
-        .cloned()
-        .unwrap_or_else(|| local_date(n.mtime))
-}
-
-fn days_ago(days: u32) -> String {
-    (chrono::Local::now() - chrono::Duration::days(days as i64))
-        .format("%Y-%m-%d")
-        .to_string()
-}
-
-fn is_bookmark(n: &Note) -> bool {
-    n.props.get("type").is_some_and(|t| t == "bookmark") || n.rel.starts_with("10-Bookmarks/")
-}
-
-/// Indent continuation lines so a multi-line capture stays one list item.
-fn list_item(prefix: &str, text: &str) -> String {
-    let mut lines = text.trim().lines();
-    let mut s = format!("{prefix}{}", lines.next().unwrap_or(""));
-    for l in lines {
-        s.push_str("\n  ");
-        s.push_str(l);
-    }
-    s
+    Ok(())
 }
 
 fn heading_of(line: &str) -> Option<(usize, &str)> {
@@ -315,13 +286,11 @@ pub(crate) fn insert_text(text: &str, heading: Option<&str>, addition: &str) -> 
         return format!("{base}{gap}## {}{nl}{nl}{addition}{nl}", heading.trim());
     };
     let end = end.unwrap_or(text.len());
-    // insert after the last non-blank line of the section
     let body = &text[body_start..end];
     let kept = body.trim_end_matches(['\n', '\r', ' ', '\t']).len();
     let at = body_start + kept;
     let (before, after) = text.split_at(at);
     if kept == 0 {
-        // empty section: right under the heading, keeping the blank line before the next one
         if after.trim().is_empty() {
             return format!("{before}{addition}{nl}");
         }
@@ -336,164 +305,126 @@ pub(crate) fn insert_text(text: &str, heading: Option<&str>, addition: &str) -> 
     format!("{before}{nl}{addition}{tail}")
 }
 
-fn snippet(body: &str, term: &str) -> String {
-    let lower = body.to_lowercase();
-    let at = lower.find(term).unwrap_or(0);
-    // `lower` can differ in byte length from `body` for some scripts; clamp to a boundary
-    let mut start = at.saturating_sub(80).min(body.len());
-    while !body.is_char_boundary(start) {
-        start -= 1;
-    }
-    let s: String = body[start..].chars().take(200).collect();
-    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
-    if start > 0 {
-        format!("…{s}")
-    } else {
-        s
-    }
+fn one_line(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 impl Backend for CoreBackend {
-    fn search(&self, ctx: &Ctx, input: SearchInput) -> Result<SearchOutput> {
-        let terms: Vec<String> = input
-            .query
-            .to_lowercase()
-            .split_whitespace()
-            .map(str::to_string)
-            .collect();
-        let since = input.scope.days.map(days_ago);
-        let mut hits = Vec::new();
-        let vaults: Vec<&Vault> = if input.scope.vaults.is_empty() {
-            self.vaults_for(None)?
-        } else {
-            input
-                .scope
-                .vaults
-                .iter()
-                .map(|w| self.vault(Some(w)))
-                .collect::<Result<_>>()?
-        };
-        for v in vaults {
-            for n in scan(v).notes {
-                ctx.check()?;
-                let bookmark = is_bookmark(&n);
-                match input.scope.kind {
-                    ScopeKind::Notes if bookmark => continue,
-                    ScopeKind::Bookmarks if !bookmark => continue,
-                    _ => {}
-                }
-                if since.as_ref().is_some_and(|s| note_date(&n) < *s) {
-                    continue;
-                }
-                let title = n.title().to_lowercase();
-                let body = n.body.to_lowercase();
-                if !terms
-                    .iter()
-                    .all(|t| title.contains(t) || body.contains(t) || n.rel.contains(t))
+    fn search(&self, ctx: &Ctx, input: SearchInput) -> Result<SearchResult> {
+        self.fresh();
+        let scope = self.scope(&input.scope)?;
+        let index = self.search_index()?;
+        ctx.check()?;
+        let settings = self.hq.settings();
+        // the client refuses any model server that isn't this Mac or the home network
+        let models = Models::new(&settings.ollama).ok();
+        let embedder = models.as_ref().map(Models::embedder);
+        let semantic = embedder
+            .as_ref()
+            .filter(|_| !settings.ollama.embed_model.is_empty())
+            .map(|e| Semantic {
+                embedder: e,
+                cache_dir: self.hq.cache_dir(),
+            });
+        search::search(
+            &index,
+            &input.query,
+            &scope,
+            input.limit.unwrap_or(10) as usize,
+            semantic,
+            &util::today(),
+        )
+    }
+
+    fn ask(&self, ctx: &Ctx, input: AskInput) -> Result<AskOutput> {
+        self.fresh();
+        let scope = self.scope(&input.scope)?;
+        let settings = self.hq.settings();
+        let models = Models::new(&settings.ollama)?;
+        let index = self.search_index()?;
+        let vaults = self.vaults()?;
+        let embedder = models.embedder();
+        let chat = models.chat();
+        let semantic = (!settings.ollama.embed_model.is_empty()).then(|| Semantic {
+            embedder: &embedder,
+            cache_dir: self.hq.cache_dir(),
+        });
+        let chat: Option<&dyn Chat> = (!settings.ollama.chat_model.is_empty()).then_some(&chat);
+        let today = util::today();
+        let mut sources = Vec::new();
+        let mut semantic_used = false;
+        // over MCP the answer is not saved as a conversation note: ask stays read-only
+        let answered = ask::ask(
+            &index,
+            &ask::AskInput {
+                question: &input.question,
+                scope: &scope,
+                conversation: None,
+                today: &today,
+            },
+            &ask::AskVaults {
+                all: &vaults,
+                save_to: None,
+            },
+            semantic,
+            chat,
+            ctx.cancel_token(),
+            &mut |e| {
+                if let AskEvent::Sources {
+                    sources: s,
+                    semantic,
+                } = e
                 {
-                    continue;
+                    sources = s;
+                    semantic_used = semantic;
                 }
-                let score: usize = terms
-                    .iter()
-                    .map(|t| title.matches(t).count() * 5 + body.matches(t).count())
-                    .sum();
-                hits.push(SearchHit {
-                    id: note_id(&v.id, &n.rel),
-                    title: n.title().to_string(),
-                    snippet: snippet(&n.body, &terms[0]),
-                    score: score as f32,
-                });
-            }
-        }
-        hits.sort_by(|a, b| b.score.total_cmp(&a.score).then(a.id.cmp(&b.id)));
-        hits.truncate(input.limit.unwrap_or(10) as usize);
-        Ok(SearchOutput { hits })
-    }
-
-    fn ask(&self, _ctx: &Ctx, _input: AskInput) -> Result<AskOutput> {
-        Err(Error::Unavailable(
-            "Ask is not connected in this build yet; use search and read_note.".into(),
-        ))
-    }
-
-    fn read_note(&self, _ctx: &Ctx, input: ReadNoteInput) -> Result<NoteOut> {
-        let id = match (input.id, input.reference) {
-            (Some(id), _) => id,
-            (None, Some(r)) => self.resolve_ref(&r, input.vault.as_deref())?,
-            (None, None) => return Err(Error::Invalid("give `id` or `ref`".into())),
-        };
-        let (_, rel, path) = self.locate(&id)?;
-        let (text, hash) = read_text(&path)?;
-        let p = frontmatter::parse(&text);
-        let stem = Path::new(&rel)
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let title = p
-            .props
-            .get("title")
-            .filter(|t| !t.is_empty())
-            .cloned()
-            .unwrap_or(stem);
-        Ok(NoteOut {
-            id,
-            title,
-            body: p.body.to_string(),
-            props: p.props,
-            hash,
+            },
+        )?;
+        ctx.check()?;
+        Ok(AskOutput {
+            answer: answered.answer,
+            model: answered.model,
+            sources,
+            semantic: semantic_used,
         })
     }
 
-    fn list_notes(&self, ctx: &Ctx, input: ListNotesInput) -> Result<ListNotesOutput> {
-        let folder = input
-            .folder
-            .as_deref()
-            .map(|f| f.trim().trim_matches('/').to_string())
-            .filter(|f| !f.is_empty());
-        let mut rows: Vec<(String, NoteSummary)> = Vec::new();
-        for v in self.vaults_for(input.vault.as_deref())? {
-            ctx.check()?;
-            for n in scan(v).notes {
-                if let Some(f) = &folder {
-                    if !n.rel.starts_with(&format!("{f}/")) {
-                        continue;
-                    }
-                }
-                if let Some(t) = &input.note_type {
-                    if n.props.get("type").is_none_or(|x| x != t) {
-                        continue;
-                    }
-                }
-                let date = note_date(&n);
-                if input.updated_since.as_ref().is_some_and(|s| date < *s) {
-                    continue;
-                }
-                rows.push((
-                    date.clone(),
-                    NoteSummary {
-                        id: note_id(&v.id, &n.rel),
-                        title: n.title().to_string(),
-                        note_type: n.props.get("type").cloned(),
-                        updated: Some(date).filter(|d| !d.is_empty()),
-                        tags: n
-                            .props
-                            .get("tags")
-                            .map(|t| frontmatter::list(t))
-                            .unwrap_or_default(),
-                    },
-                ));
-            }
+    fn read_note(&self, _ctx: &Ctx, input: ReadNoteInput) -> Result<NoteView> {
+        self.fresh();
+        if self.hq.registry().vaults().is_empty() {
+            return Err(Self::none_yet());
         }
-        rows.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.id.cmp(&b.1.id)));
-        let total = rows.len() as u32;
+        match (input.id, input.reference) {
+            (Some(id), _) => {
+                let (v, _) = self.hq.locate(&id)?;
+                notes::get(&[self.hq.snapshot(&v.id)?], None, &id)
+            }
+            (None, Some(r)) => match input.vault.as_deref() {
+                Some(w) => {
+                    let v = self.vault(Some(w))?;
+                    notes::get(&[self.hq.snapshot(&v.id)?], None, &r)
+                }
+                None => self.hq.note_get(&r),
+            },
+            (None, None) => Err(Error::Invalid("give `id` or `ref`".into())),
+        }
+    }
+
+    fn list_notes(&self, _ctx: &Ctx, input: ListNotesInput) -> Result<ListNotesOutput> {
+        self.fresh();
+        let filter = NoteFilter {
+            vault: self.vault_id(input.vault.as_deref())?,
+            folder: input.folder,
+            note_type: input.note_type,
+            text: input.text,
+            updated_since: input.updated_since,
+            limit: None,
+        };
+        let all = self.hq.notes_list(&filter);
+        let total = all.len() as u32;
         let offset = input.offset.unwrap_or(0) as usize;
         let limit = input.limit.unwrap_or(100) as usize;
-        let notes: Vec<NoteSummary> = rows
-            .into_iter()
-            .skip(offset)
-            .take(limit)
-            .map(|r| r.1)
-            .collect();
+        let notes: Vec<_> = all.into_iter().skip(offset).take(limit).collect();
         let next = offset + notes.len();
         Ok(ListNotesOutput {
             notes,
@@ -502,106 +433,57 @@ impl Backend for CoreBackend {
         })
     }
 
-    fn create_note(&self, ctx: &Ctx, input: CreateNoteInput) -> Result<WriteOutput> {
+    fn create_note(&self, ctx: &Ctx, input: CreateNoteInput) -> Result<NoteView> {
+        self.fresh();
         let vault = self.vault(input.vault.as_deref())?;
         let folder = input
             .folder
             .as_deref()
             .map(|f| f.trim().trim_matches('/'))
             .filter(|f| !f.is_empty())
-            .unwrap_or(INBOX);
-        if folder
-            .split('/')
-            .any(|c| c.eq_ignore_ascii_case("_templates"))
-        {
-            return Err(Error::Denied(
-                "Templates are managed in the app, not over MCP".into(),
-            ));
-        }
-        let rel = format!("{folder}/{}.md", util::slug(&input.title, 60));
-        let path = safe_path(vault, &rel)?;
-        let today = util::today();
-        let mut props = vec![
-            ("title", input.title.trim().to_string()),
-            (
-                "type",
-                input
-                    .note_type
-                    .as_deref()
-                    .map(str::trim)
-                    .unwrap_or("note")
-                    .to_string(),
-            ),
-            ("created", today.clone()),
-            ("updated", today),
-            ("author", ctx.author.clone()),
-        ];
-        if !input.tags.is_empty() {
-            let tags: Vec<String> = input
-                .tags
-                .iter()
-                .map(|t| t.trim_start_matches('#').to_string())
-                .collect();
-            props.push(("tags", frontmatter::format_list(&tags)));
-        }
-        let mut text = frontmatter::render(&props);
-        let body = input.body.unwrap_or_default();
-        let body = body.trim_matches('\n');
-        if !body.is_empty() {
-            text.push_str(body);
-            text.push('\n');
-        }
-        locks::create_new(&path, &text).map_err(|e| match e {
-            Error::Invalid(_) => Error::Invalid(format!(
-                "{rel} already exists. Read it and use append_to_note, or pick another title."
-            )),
-            e => e,
-        })?;
-        Ok(WriteOutput {
-            id: note_id(&vault.id, &rel),
-            hash: locks::sha256(&text),
+            .unwrap_or(layout::INBOX)
+            .to_string();
+        check_folder(&folder)?;
+        self.hq.note_create(&NoteInput {
+            title: input.title,
+            vault: Some(vault.id),
+            folder: Some(folder),
+            template: input.template,
+            note_type: input.note_type,
+            tags: (!input.tags.is_empty()).then_some(input.tags),
+            body: input.body,
+            author: Some(ctx.author.clone()),
         })
     }
 
     fn append_to_note(&self, _ctx: &Ctx, input: AppendInput) -> Result<WriteOutput> {
-        let (vault, rel, path) = self.locate(&input.id)?;
+        let (vault, rel) = self.hq.locate(&input.id)?;
+        check_folder(notes::folder_of(&rel))?;
+        let path = notes::note_path(&vault, &rel)?;
         let today = util::today();
         let hash = locks::guarded_edit(&path, Some(&input.base_hash), |cur| {
             let next = insert_text(cur, input.heading.as_deref(), &input.text);
             Ok(frontmatter::bump_updated(&next, &today))
         })?;
-        Ok(WriteOutput {
-            id: note_id(&vault.id, &rel),
-            hash,
-        })
+        self.hq.invalidate(Some(&vault.id));
+        Ok(WriteOutput { id: input.id, hash })
     }
 
     fn capture(&self, ctx: &Ctx, input: CaptureInput) -> Result<LineOutput> {
         let vault = self.vault(input.vault.as_deref())?;
+        let text = one_line(&input.text);
+        if text.is_empty() {
+            return Err(Error::Invalid("Nothing to capture.".into()));
+        }
+        // A's capture note and header; the line is signed like the daily Agent log
         let today = util::today();
-        let rel = format!("{INBOX}/{today}-capture.md");
-        let path = safe_path(vault, &rel)?;
-        // agents sign their line the way the daily Agent log does: `- HH:MM who · text`
-        let line = list_item(
-            &format!("- {} {} · ", util::now_hhmm(), ctx.author),
-            &input.text,
-        );
-        let author = ctx.author.clone();
-        locks::append(
-            &path,
-            || {
-                frontmatter::render(&[
-                    ("title", format!("Capture {today}")),
-                    ("type", "capture".into()),
-                    ("created", today.clone()),
-                    ("updated", today.clone()),
-                    ("author", author),
-                ])
-            },
-            &line,
-        )?;
+        let rel = layout::capture_rel(&today);
+        let path = vault.resolve_rel(&rel)?;
+        let line = format!("- {} {} · {text}", util::now_hhmm(), ctx.author);
+        capture::append_line(&path, || capture::header(&today), &line, &today)?;
+        self.hq.invalidate(Some(&vault.id));
         Ok(LineOutput {
-            id: note_id(&vault.id, &rel),
+            id: hq_core::types::note_id(&vault.id, &rel),
             line,
         })
     }
@@ -609,64 +491,111 @@ impl Backend for CoreBackend {
     fn log(&self, ctx: &Ctx, input: LogInput) -> Result<LineOutput> {
         let vault = self.vault(input.vault.as_deref())?;
         let today = util::today();
-        let rel = format!("{DAILY}/{today}.md");
-        let path = safe_path(vault, &rel)?;
-        if !path.exists() {
-            let mut text = frontmatter::render(&[
-                ("title", today.clone()),
-                ("type", "daily".into()),
-                ("created", today.clone()),
-                ("updated", today.clone()),
-                ("author", ctx.author.clone()),
-            ]);
-            for h in ["Quick Wins", "Work", "Learning", "Tomorrow", AGENT_LOG] {
-                text.push_str(&format!("## {h}\n\n"));
-            }
-            match locks::create_new(&path, &text) {
-                Ok(()) | Err(Error::Invalid(_)) => {} // created meanwhile by someone else
-                Err(e) => return Err(e),
-            }
-        }
-        let line = format!(
-            "- {} {} · {}",
-            util::now_hhmm(),
-            ctx.author,
-            input.text.trim()
-        );
-        locks::guarded_edit(&path, None, |cur| {
-            let next = insert_text(cur, Some(AGENT_LOG), &line);
-            Ok(frontmatter::bump_updated(&next, &today))
-        })?;
+        let hhmm = util::now_hhmm();
+        let text = one_line(&input.text);
+        let id = days::log(&vault, &ctx.author, &text, &today, &hhmm, &today)?;
+        self.hq.invalidate(Some(&vault.id));
         Ok(LineOutput {
-            id: note_id(&vault.id, &rel),
-            line,
+            id,
+            line: format!("- {hhmm} {} · {text}", ctx.author),
         })
     }
 
-    fn add_task(&self, _ctx: &Ctx, _input: AddTaskInput) -> Result<TaskOut> {
-        Err(tasks_pending())
+    fn add_task(&self, _ctx: &Ctx, input: AddTaskInput) -> Result<Task> {
+        let vault = self.vault_id(input.vault.as_deref())?;
+        let task = TaskInput {
+            description: input.description,
+            tags: input.tags,
+            project: input.project,
+            note: input.note,
+            vault,
+            priority: input.priority,
+            start: input.start,
+            scheduled: input.scheduled,
+            due: input.due,
+            recur: input.recur,
+            depends: input.depends,
+            waiting: input.waiting,
+        };
+        self.with_tasks(|c| mutate::add(c, &task))
     }
 
-    fn update_task(&self, _ctx: &Ctx, _input: UpdateTaskInput) -> Result<TaskOut> {
-        Err(tasks_pending())
+    fn update_task(&self, _ctx: &Ctx, input: UpdateTaskInput) -> Result<Task> {
+        let mut patch = input.patch;
+        let close = match input.status {
+            Some(s @ (TaskStatus::Done | TaskStatus::Cancelled)) => Some(s),
+            other => {
+                if other.is_some() {
+                    patch.status = other;
+                }
+                None
+            }
+        };
+        self.with_tasks(|c| {
+            let mut key = input.id.clone();
+            let mut last = None;
+            if patch != TaskPatch::default() {
+                let t = mutate::update(c, &key, &patch)?;
+                key = t.key.clone();
+                last = Some(t);
+            }
+            if let Some(text) = &input.annotate {
+                let t = mutate::annotate(c, &key, text)?;
+                key = t.key.clone();
+                last = Some(t);
+            }
+            match close {
+                Some(TaskStatus::Done) => last = Some(mutate::done(c, &key)?),
+                Some(_) => last = Some(mutate::cancel(c, &key)?),
+                None => {}
+            }
+            last.ok_or_else(|| Error::Invalid("`patch` must change at least one field".into()))
+        })
     }
 
-    fn list_tasks(&self, _ctx: &Ctx, _input: ListTasksInput) -> Result<ListTasksOutput> {
-        Err(tasks_pending())
+    fn list_tasks(&self, _ctx: &Ctx, input: ListTasksInput) -> Result<TaskGroups> {
+        let vaults = self.vaults()?;
+        let mut q = input.query;
+        q.vaults = q
+            .vaults
+            .iter()
+            .map(|w| self.vault(Some(w)).map(|v| v.id))
+            .collect::<Result<_>>()?;
+        if q.limit.is_none() {
+            q.limit = Some(50);
+        }
+        query::run(&TaskIndex::build(&vaults), &q)
     }
 
-    fn add_bookmark(&self, _ctx: &Ctx, _input: AddBookmarkInput) -> Result<BookmarkOut> {
-        Err(Error::Unavailable(
-            "Bookmarks are not connected in this build yet; capture the URL instead.".into(),
-        ))
+    fn add_bookmark(&self, ctx: &Ctx, input: AddBookmarkInput) -> Result<BookmarkOutput> {
+        let vault = self.vault(input.vault.as_deref())?;
+        let (mut bookmark, created) = store::add(&vault, &input.url, input.note.as_deref())?;
+        if created {
+            // the store writes `author: hq`; this note was the agent's doing
+            let author = ctx.author.clone();
+            bookmark = store::update(&vault, &bookmark.id, |t| {
+                frontmatter::set(t, "author", &author, false)
+            })?;
+            if self.fetch_pages && !ctx.is_cancelled() {
+                // the app's one request with its timeout; offline just keeps the URL as title
+                if let Ok(meta) = enrich::fetch_page(&bookmark.url) {
+                    if let Ok(b) = enrich::apply_page(&vault, &bookmark.id, &meta) {
+                        bookmark = b;
+                    }
+                }
+            }
+        }
+        self.hq.invalidate(Some(&vault.id));
+        Ok(BookmarkOutput { bookmark, created })
     }
 
     fn vault_info(&self, ctx: &Ctx) -> Result<VaultInfoOutput> {
+        self.fresh();
         let mut vaults = Vec::new();
-        for (i, v) in self.vaults.iter().enumerate() {
+        for v in self.hq.vaults() {
             ctx.check()?;
-            let s = scan(v);
-            let mut folders: Vec<String> = std::fs::read_dir(&v.root)?
+            let root = Path::new(&v.path);
+            let mut folders: Vec<String> = std::fs::read_dir(root)?
                 .filter_map(|e| e.ok())
                 .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
                 .map(|e| e.file_name().to_string_lossy().into_owned())
@@ -674,13 +603,14 @@ impl Backend for CoreBackend {
                 .collect();
             folders.sort();
             vaults.push(VaultSummary {
-                id: v.id.clone(),
-                name: v.name.clone(),
-                primary: i == self.primary,
-                notes: s.notes.len() as u32,
-                unreadable: s.unreadable.len() as u32,
+                has_agents_md: root.join("AGENTS.md").is_file(),
+                id: v.id,
+                name: v.name,
+                path: v.path,
+                primary: v.primary,
+                notes: v.notes,
+                unreadable: v.unreadable,
                 folders,
-                has_agents_md: v.root.join("AGENTS.md").is_file(),
             });
         }
         Ok(VaultInfoOutput {
@@ -701,7 +631,7 @@ impl Backend for CoreBackend {
                 vault.name
             )));
         }
-        let (text, _) = read_text(&path)?;
+        let (text, _) = locks::read(&path)?;
         Ok(ResourceText {
             mime_type: "text/markdown".into(),
             text,
@@ -709,34 +639,21 @@ impl Backend for CoreBackend {
     }
 
     fn note_resource(&self, _ctx: &Ctx, id: &str) -> Result<ResourceText> {
-        let (_, _, path) = self.locate(id)?;
-        let (text, _) = read_text(&path)?;
+        if split_note_id(id).is_none() {
+            return Err(Error::NotFound(format!("\"{id}\" is not a note id")));
+        }
+        let (_, rel) = self.hq.locate(id)?;
+        check_folder(notes::folder_of(&rel))?;
         Ok(ResourceText {
             mime_type: "text/markdown".into(),
-            text,
+            text: self.hq.note_source(id)?.text,
         })
     }
-}
-
-fn tasks_pending() -> Error {
-    Error::Unavailable(
-        "Tasks are not connected in this build yet; capture the task as text instead.".into(),
-    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn refs() {
-        assert_eq!(clean_ref("[[garden#Plan|the garden]]"), "garden");
-        assert_eq!(clean_ref("![[img.png]]"), "img.png");
-        assert_eq!(
-            clean_ref("./01-Projects/garden.md"),
-            "01-Projects/garden.md"
-        );
-    }
 
     #[test]
     fn insert_at_end() {
@@ -752,7 +669,6 @@ mod tests {
             insert_text(t, Some("Notes"), "- two"),
             "# N\n\n## Notes\n\n- one\n- two\n\n## Tasks\n\n- [ ] x\n"
         );
-        // the last section, and a deeper heading inside it stays in it
         let t = "## Log\n- a\n### sub\n- b\n";
         assert_eq!(
             insert_text(t, Some("log"), "- c"),
@@ -764,8 +680,8 @@ mod tests {
     fn insert_in_empty_section() {
         let t = "## Work\n\n## Agent log\n\n";
         assert_eq!(
-            insert_text(t, Some("Agent log"), "- 10:00 claude · hi"),
-            "## Work\n\n## Agent log\n- 10:00 claude · hi\n"
+            insert_text(t, Some("Agent log"), "- x"),
+            "## Work\n\n## Agent log\n- x\n"
         );
         let t = "## Agent log\n\n## Tomorrow\n";
         assert_eq!(
@@ -800,14 +716,10 @@ mod tests {
     }
 
     #[test]
-    fn multi_line_items() {
-        assert_eq!(list_item("- ", "one\ntwo\n"), "- one\n  two");
-    }
-
-    #[test]
-    fn snippets_are_safe() {
-        let body = "ünïcödé ".repeat(40) + "needle here";
-        let s = snippet(&body, "needle");
-        assert!(s.contains("needle"));
+    fn folders() {
+        assert!(check_folder("01-Projects/sub").is_ok());
+        assert!(check_folder(".vault-hq").is_err());
+        assert!(check_folder("a/.git").is_err());
+        assert!(check_folder("_Templates").is_err());
     }
 }
