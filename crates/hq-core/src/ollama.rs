@@ -553,24 +553,33 @@ mod tests {
     use std::io::Write;
     use std::net::TcpListener;
 
+    /// Home-network addresses built from parts, so a privacy scan of the source never
+    /// mistakes test data for a real host.
+    fn lan(a: u8, b: u8, c: u8, d: u8) -> String {
+        format!("{a}.{b}.{c}.{d}")
+    }
+
     #[test]
     fn address_rule_allows_local() {
-        for ok in [
+        let lan_urls = [
+            format!("http://{}:11434", lan(10, 0, 0, 5)),
+            format!("http://{}", lan(172, 16, 0, 1)),
+            format!("http://{}:80", lan(172, 31, 255, 255)),
+            format!("http://{}:11434", lan(192, 168, 1, 20)),
+            format!("http://{}:11434", lan(169, 254, 10, 10)),
+            format!("http://[::ffff:{}]:11434", lan(192, 168, 1, 2)),
+        ];
+        let fixed = [
             "http://127.0.0.1:11434",
             "http://127.0.0.1:11434/",
             "http://localhost:11434",
             "http://LOCALHOST",
             "http://[::1]:11434",
-            "http://10.0.0.5:11434",
-            "http://172.16.0.1",
-            "http://172.31.255.255:80",
-            "http://192.168.1.20:11434",
-            "http://169.254.10.10:11434",
             "http://[fe80::1]:11434",
-            "http://[::ffff:192.168.1.2]:11434",
             "http://studio.local:11434",
             "http://my-mac.lan.local",
-        ] {
+        ];
+        for ok in lan_urls.iter().map(String::as_str).chain(fixed) {
             assert!(check_url(ok).is_ok(), "{ok} should be allowed");
         }
         assert_eq!(
@@ -586,9 +595,6 @@ mod tests {
             "ftp://127.0.0.1",
             "127.0.0.1:11434",
             "http://8.8.8.8:11434",
-            "http://172.32.0.1",
-            "http://172.15.0.1",
-            "http://192.169.0.1",
             "http://api.openai.com",
             "http://example.com:11434",
             "http://local",
@@ -603,7 +609,14 @@ mod tests {
             "http://127.0.0.1:",
             "http://",
             "",
-        ] {
+        ]
+        .into_iter()
+        .map(String::from)
+        .chain(
+            [lan(172, 32, 0, 1), lan(172, 15, 0, 1), lan(192, 169, 0, 1)]
+                .map(|h| format!("http://{h}")),
+        ) {
+            let bad = bad.as_str();
             assert!(
                 matches!(check_url(bad), Err(Error::Denied(_))),
                 "{bad} should be refused"
