@@ -11,6 +11,7 @@ pub mod app;
 // ---- streams: add `pub mod <area>;` below (A core, B tasks, C search, E, F, W) ----
 pub mod onboarding;
 pub mod search;
+pub mod tasks;
 
 mod names;
 pub use names::{CAPTURE_WINDOW, COMMANDS};
@@ -28,6 +29,17 @@ macro_rules! hq_commands {
             app::capture_open,
             app::capture_hide,
             // ---- streams: add `<area>::<command>,` lines below ----
+            // B tasks
+            tasks::tasks_query,
+            tasks::task_add,
+            tasks::task_update,
+            tasks::task_done,
+            tasks::task_cancel,
+            tasks::task_delete,
+            tasks::task_annotate,
+            tasks::task_start,
+            tasks::tasks_stats,
+            tasks::tasks_import_taskwarrior,
             // C search
             search::search,
             search::ask_start,

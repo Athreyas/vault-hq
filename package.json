@@ -33,5 +33,12 @@
     "vite": "^8.3.5",
     "vitest": "4.1.12"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "author": {
+    "name": "Athreyas",
+    "url": "https://monk97.me"
+  },
+  "contributors": [
+    "Claude Code (https://claude.com/claude-code)"
+  ]
 }

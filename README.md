@@ -1,19 +1,46 @@
 # Vault HQ
 
-A local front end for a "second brain": a folder of markdown notes that you, your
-editors and your AI agents all write into. Obsidian is fine for storing that folder
-and poor for living in it, so HQ keeps the files and replaces the window: what needs
-you today, your days at a glance, tasks, notes you can read and edit, and questions
-answered by a model running on your own Mac. Nothing leaves the machine.
+**One place for your second brain.** Vault HQ is a native Mac app over a folder of plain
+markdown that you, your editors and your AI agents all write into. Notes, tasks,
+bookmarks and the day's trail live in that folder as files any tool can read; HQ is
+where you see them, act on them and ask them questions, with models that run on your
+own Mac. Nothing leaves the machine.
+
+> Envisioned and architected by **[Athreyas](https://monk97.me)** · built with **[Claude Code](https://claude.com/claude-code)**
 
 ![Home: the day's trail, what needs a decision, and every active project](docs/screenshots/home.png)
 
-**Try it with sample data** (macOS, Node 25+; Taskwarrior and Ollama optional):
+## Why
 
-```bash
-npm install
-npm run demo        # builds a fictional demo vault in /Users/Shared/hq-demo, serves http://localhost:4330
-```
+Obsidian is a good way to *store* a folder of markdown and a poor place to *live* in it:
+search that doesn't find things by meaning, a layout that doesn't show what needs you,
+and a window for looking at files rather than acting on them. Vault HQ keeps the files,
+because plain markdown is the right database for knowledge many tools share, and
+replaces everything around them.
+
+## What it does
+
+- **Home**: what needs you now, active projects, the day's trail, and widgets you
+  arrange yourself (this Mac's load, task burn rate, a JSON status of your choice…).
+- **Ask**: a chat with your notes and bookmarks on a local model (Ollama). Answers stream
+  in as they are written, cite the notes they used, and every conversation is saved as a
+  note.
+- **Tasks**: a full task engine (tags, projects, priorities, due/scheduled dates,
+  recurrence, dependencies, urgency, grouping, burn-down) whose data is the checkbox lines
+  in your notes. Imports from Taskwarrior.
+- **Notes**: read and edit any note, with `[[links]]` and backlinks. A save is refused if
+  an agent or another app changed the note while you typed; you see what changed and choose.
+- **Bookmarks**: imported straight from Chrome, Arc, Dia, Brave, Edge, Firefox and Safari
+  bookmark files, only for the browsers you allow. No extension, no login. Old saves
+  resurface on Home each day.
+- **Quick capture**: ⌥⌘Space or the menu-bar icon, from anywhere. A thought, a task or a
+  link, in one line.
+- **Your agents, connected**: a built-in MCP server lets Claude Code, Claude Desktop,
+  Cursor and Codex search, read and write the vault under the same safety rules as the
+  app. Setup writes their configs for you (after showing the diff) and gives each one a
+  prompt that teaches it where the brain lives.
+- **Several vaults**: home, team, anything; one is primary. Bring an existing Obsidian
+  vault and a restructuring assistant tidies it, only where you tick.
 
 | | |
 |---|---|
@@ -21,120 +48,71 @@ npm run demo        # builds a fictional demo vault in /Users/Shared/hq-demo, se
 | ![Days: a week of daily notes, metrics and the agents' log](docs/screenshots/days-week.png) | ![Editing: a save refused because an agent changed the note meanwhile](docs/screenshots/editor-conflict.png) |
 | ![Ctrl K palette](docs/screenshots/palette.png) | ![Settings: the local model server and models](docs/screenshots/settings-ai.png) |
 
-**Status:** a personal project, built for one Mac and one vault layout (folders
-`00-Inbox` … `09-Planning`, daily notes with Quick Wins, Work, Learning, Tomorrow and an
-Agent log). The background automation that fills the vault (agent capture hooks, the
-Taskwarrior ↔ notes sync, daily metrics) lives in the vault itself and is not published
-yet; HQ runs without it, minus the sync.
+*Screenshots are from 1.0 and a fictional demo vault; 2.0 keeps the same terminal look.*
 
-A terminal-style interface: tabs with number keys on top, a key legend at the bottom, monospace type.
+## Principles
 
-- **Home:** every panel at once (focus, needs, inbox, the day's trail, tomorrow, projects) under an ask prompt, with a date picker to look at any day.
-- **Needs you:** a queue of decisions, each recorded with your reasoning.
-- **Days:** day, 3-day and week views with a calendar strip that highlights the range, plus boxes to write your own Quick Wins, Work, Learning and Tomorrow lines.
-- **Tasks and Inbox:** Taskwarrior tasks and triage inbox captures.
-- **Notes:** read and edit any note inside HQ: tables, code, task lists and callouts rendered, `[[links]]` followed in place, and the notes that link back listed under each one. `e` edits the whole note, `⌘S` saves. If anything else changed the note while you typed (an agent, a sync, Obsidian), the save is refused and you see what changed and choose. Unsaved text is kept as a draft per note.
-- **Settings (⌘,):** where the brain lives and what it is connected to, the local AI server and models (changeable; must stay on this Mac or the home network), theme, the app and service, and what HQ does and doesn't send anywhere.
-- **Ask:** search and question your notes with **local Ollama only**; nothing leaves the machine. Scope it to all notes or a window of days; recent questions are kept in this browser and reopen with their results.
-- **Ctrl K:** a command palette to jump to any view, day or note, ask, search notes, or capture a thought into today's inbox note.
+- **Local only.** No account, no telemetry, no sync service. The model server must be on
+  this Mac or your home network; HQ refuses anything else. To use several Macs, keep the
+  vault in a folder you already sync (iCloud Drive, Dropbox).
+- **Markdown is the source of truth.** Every note, task and bookmark is a plain `.md` file.
+  Search vectors and task indexes are caches that can be thrown away.
+- **No plugins, no logins.** Agents connect over MCP or by plain file conventions;
+  browsers are read from their own files after you say yes.
+- **Safe writes.** Every write locks the file, checks it hasn't changed since it was read,
+  and writes in place, so the app, your agents and your editors never clobber each other.
 
-Keys: `Ctrl K` palette, `⌘,` settings, `/` ask, `1`-`7` views, arrows move between Home panels and Needs items, `[` `]` `t` `s` step, jump and cycle the range in Days, `f` `e` `⌘S` `r` `o` filter, edit, save, reorder and open in Obsidian in Notes, `Esc` closes. The legend at the bottom always shows the current view's keys.
+## Status
 
-## Install (2.0, the Mac app)
+| version | what | branch |
+|---|---|---|
+| **1.0** | Node server + Tauri window, one vault, Taskwarrior | `main`, tag `v1.0.0` |
+| **2.0** | One self-contained Rust app: everything above | `v2`, in development |
 
-Vault HQ 2.0 is one signed, notarized app for Apple Silicon Macs on macOS 13 (Ventura)
-or later. Install it with Homebrew:
-
-```bash
-brew install --cask athreyas/tap/vault-hq
-```
-
-or download the DMG from [GitHub Releases](https://github.com/Athreyas/vault-hq/releases)
-and check it against the SHA-256 published with it (`shasum -a 256 Vault-HQ_*.dmg`).
-The cask also puts `vault-hq` on your `PATH`, so agents can start the MCP server with
-`vault-hq mcp`. `brew uninstall --zap --cask vault-hq` removes HQ's own settings and
-caches; your vaults are never touched. How releases are made:
-[docs/v2/RELEASING.md](docs/v2/RELEASING.md).
-
-## Setup and launch
-
-You need macOS, Node 25+, Taskwarrior and Ollama. A vault's own automation (if it has one) records which vault this Mac serves; otherwise set `VAULT_PATH` or pick the vault in Settings.
+2.0 is being built in parallel workstreams against [docs/v2/SPEC.md](docs/v2/SPEC.md).
+Signed, notarized builds (DMG and Homebrew) come with the 2.0 release:
 
 ```bash
-# 1. tools
-brew install node task taskwarrior-tui
-brew install ollama          # skip if Ollama is already running
-ollama pull llama3.1:8b      # answers
-ollama pull nomic-embed-text # semantic search (about 270 MB)
-
-# 2. the vault's automation: records which vault this Mac serves, plus hooks, task sync, metrics
-bash "<vault>/_tools/automation/install.sh"
-
-# 3. the app
-cd vault-hq
-npm install
-npm start                    # builds the web app and serves http://localhost:4320
+brew install --cask athreyas/tap/vault-hq     # after the 2.0 release
 ```
 
-Open **http://localhost:4320** and check:
-- the top bar says "synced … ago";
-- Ask says "Ollama ready, semantic search on".
+## Build from source
 
-**The Mac app:** `scripts/app.sh` builds the native app (Tauri, in `src-tauri/`) and installs it as `~/Applications/Vault HQ.app`. It needs Rust: `brew install rustup && rustup default stable`.
-- A window over this same interface. Closing it hides it; HQ keeps running in the menu bar (the `▌hq` icon).
-- **⌃⌥Space** from anywhere brings HQ forward with the Ctrl K palette open, and puts it away again if it is already in front.
-- Opens at login (turn that off in the menu-bar menu). Links to Obsidian and the web open in their own apps.
-- The vault is still served by the `local.vault-hq` service below; the app only shows it, and starts the service if it isn't answering.
+macOS 13+ on Apple Silicon, Rust (`brew install rustup && rustup default stable`), Node 25+.
 
-**Always on:** `scripts/service.sh install` runs HQ as a LaunchAgent (`local.vault-hq`): it starts at login and restarts if it crashes, so no terminal is needed. After changing the code, `scripts/service.sh restart` rebuilds and restarts it. `status` shows whether it runs and the last log lines (`~/Library/Logs/vault-hq.log`), and `uninstall` removes it.
+```bash
+npm ci
+cargo test --workspace            # the core: vaults, notes, tasks, search, bookmarks…
+npx tauri dev                     # the app, with live reload of the interface
+node demo/make-demo.mjs           # a fictional demo vault in /Users/Shared/hq-demo
+```
 
-Without the service, `npm start` runs it in a terminal tab. To stop a copy started that way, run `lsof -ti tcp:4320 -sTCP:LISTEN | xargs kill` (without `-sTCP:LISTEN`, `lsof` also returns your browser's connections), or run another copy with `HQ_PORT=4321 npm start`.
+Point an agent at the vault over MCP:
 
-**Development:** run `npm run dev:server` and `npm run dev:web` in two terminals; Vite on :5173 proxies `/api` to :4320. `npm run verify` (typecheck and build) is the definition of green.
+```bash
+claude mcp add vault-hq -- "/Applications/Vault HQ.app/Contents/MacOS/vault-hq" mcp
+```
 
-## How it works
+## How it is built
 
-- **Which vault:** read from `~/.config/vault-automation/vault-path`, which the vault's `install.sh` writes (override with `VAULT_PATH`). Optional per-machine extras live in `server/personal.ts`, which `server/extensions.ts` loads only if the file exists. Each extra also stays off unless the vault's `_tools/automation/collectors.json` lists it.
-- **Server (`server/`)**: Node 25 runs the TypeScript directly; there is no build step.
-  - Only `127.0.0.1` is bound.
-  - Request bodies are validated with Zod.
-  - Every write needs the `X-HQ: 1` header and a same-origin `Origin`.
-  - It reads the vault through a 4-second cache and never stores data of its own. The exceptions are snoozes (`hq.json`) and the embedding cache (`hq-embeddings.json`), both in `~/.local/share/vault-automation/state/`.
-- **Tasks**: every change goes through the `task` CLI. Taskwarrior's on-exit hook runs the vault's `task-sync.py`, so the change reaches the note within seconds. HQ never edits checkboxes itself.
-- **Your own words**: "add a line" in Days and the capture box write to the human zone on your behalf: `09-Planning/Daily/<date>.md` sections and `00-Inbox/<date>-capture.md`, both `author: human`.
-- **Notes (`server/notes.ts`, `saveNote` in `server/writes.ts`)**: a link is resolved the way Obsidian does (path, then name), and only among notes the vault scan already found, so a URL can't reach a file outside the vault. Markdown is rendered as React elements, never as HTML. A save sends the SHA-256 of the text the editor started from; under the same file lock the vault's other writers use, the server refuses it if the file changed, and otherwise writes in place and bumps `updated:`.
-- **Needs you**: built by fixed rules in `server/needs.ts`, with no model deciding what is urgent. Decisions are appended to `09-Planning/decision-log.md`.
-- **Ask (`server/search.ts`)**:
-  1. Notes are split into heading-sized chunks.
-  2. Chunks are ranked by BM25 plus `nomic-embed-text` similarity. Project and reference notes are favoured over old session logs.
-  3. `llama3.1:8b` answers from the top 8 chunks and cites `[[note]]` links. The sources are listed under each answer.
-  
-  **Search notes** returns the ranked chunks without calling the model.
-- **Web (`web/`)**: Vite, React and strict TypeScript.
-  - All colours, type and spacing live in `web/src/tokens.css`.
-  - Dark graphite by default; a light theme only when chosen (Ctrl K, "theme"), remembered per browser.
-  - Your words render in IBM Plex Mono and machine output in JetBrains Mono, mirroring the vault's human and machine zones.
+```
+crates/hq-core   Rust: vaults, notes, tasks, search and Ask, bookmarks, onboarding, widgets
+crates/hq-mcp    Rust: the MCP server (`vault-hq mcp`, stdio)
+src-tauri        Rust: the app: windows, menu-bar icon, hotkeys, background jobs
+web              TypeScript + React: the interface, talking to the core over Tauri commands
+```
 
-## Environment
+One process, no web server. Every pull request runs formatting, lints, tests, a license
+check (no GPL/AGPL code), a privacy scan and an app build; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Releases are signed and notarized only on the maintainer's Mac
+([docs/v2/RELEASING.md](docs/v2/RELEASING.md)).
 
-| Variable | Default |
-|---|---|
-| `HQ_PORT` | `4320` |
-| `VAULT_PATH` | contents of `~/.config/vault-automation/vault-path` |
-| `VAULT_STATE` | `~/.local/share/vault-automation/state` |
-| `TASK_BIN` | `/opt/homebrew/bin/task` |
-| `OLLAMA_URL` | `http://127.0.0.1:11434` |
-| `OLLAMA_CHAT_MODEL` | `llama3.1:8b` (a larger model such as `qwen2.5:14b` gives better answers if the Mac has the memory) |
-| `OLLAMA_EMBED_MODEL` | `nomic-embed-text` |
+## Credits
 
-The three Ollama values can also be changed in Settings (⌘,); they are saved to `hq-settings.json` in the state folder. An environment variable, when set, wins and locks that field.
-
-## Known behaviour
-
-- **iCloud and the service:** run as a LaunchAgent, HQ is a background process, and macOS can refuse it reads of vault files that aren't pinned ("Unknown system error -11"). In Finder, right-click the vault folder and choose **Keep Downloaded**; this pins every note inside. Until then HQ skips the notes it can't read and shows "N notes unreadable" in the top bar (hover for the list). `collectors.json` is read from the local copy `install.sh` makes, so lab and NAS cards don't depend on iCloud.
-- **iCloud evictions:** the first load after iCloud evicts the vault's notes takes about 2 minutes while they download again. In Finder, right-click the vault folder and choose **Keep Downloaded**. This doesn't apply to a vault in a plain local folder.
-- **First Ask:** the first question after a vault change embeds the new chunks, which takes about a minute for the whole vault and seconds after that.
-- **Answer quality:** an 8B model sometimes picks an older fact over a newer one. The sources under each answer show what it read; trust those over the prose.
+Vault HQ was envisioned and architected by **[Athreyas](https://monk97.me)**, who set its direction, its
+principles and every design decision, and was built with **Claude Code** (Anthropic),
+working as the engineering team: the spec, the parallel workstreams, the code, the tests
+and the reviews. See [AUTHORS.md](AUTHORS.md).
 
 ## License
 
