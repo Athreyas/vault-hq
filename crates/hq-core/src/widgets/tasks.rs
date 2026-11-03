@@ -76,9 +76,14 @@ pub fn from_task(t: &crate::types::Task) -> TaskInput {
         }
         .to_string()
     });
+    // a line that is only a link or tags has no description of its own; name its note
+    let title = match plain_text(&t.description) {
+        s if s.is_empty() => t.note_title.clone(),
+        s => s,
+    };
     TaskInput {
         id: t.key.clone(),
-        title: t.description.clone(),
+        title,
         state,
         project: t.project.clone(),
         tags: t.tags.clone(),
@@ -92,6 +97,72 @@ pub fn from_task(t: &crate::types::Task) -> TaskInput {
         },
         urgency: t.urgency as f32,
     }
+}
+
+/// A task description as a glanceable line: markdown emphasis, code, links and
+/// wikilinks reduced to their text, whitespace collapsed.
+pub fn plain_text(md: &str) -> String {
+    let c: Vec<char> = md.chars().collect();
+    let mut out = String::with_capacity(md.len());
+    let mut i = 0;
+    let word = |ch: Option<&char>| ch.is_some_and(|x| !x.is_whitespace());
+    while i < c.len() {
+        let rest: String = c[i..].iter().take(2).collect();
+        // [[target|alias]] -> alias; [[folder/note#heading]] -> note
+        if rest == "[[" {
+            if let Some(end) = find(&c, i + 2, "]]") {
+                let inner: String = c[i + 2..end].iter().collect();
+                let shown = match inner.split_once('|') {
+                    Some((_, alias)) => alias.to_string(),
+                    None => {
+                        let target = inner.split('#').next().unwrap_or("");
+                        target.rsplit('/').next().unwrap_or("").to_string()
+                    }
+                };
+                out.push_str(&shown);
+                i = end + 2;
+                continue;
+            }
+        }
+        // [text](url) and ![alt](url) -> text
+        let img = c[i] == '!' && c.get(i + 1) == Some(&'[');
+        if c[i] == '[' || img {
+            let open = if img { i + 1 } else { i };
+            let close = find(&c, open + 1, "]");
+            if let Some(close) = close.filter(|&k| c.get(k + 1) == Some(&'(')) {
+                if let Some(end) = find(&c, close + 2, ")") {
+                    out.extend(&c[open + 1..close]);
+                    i = end + 1;
+                    continue;
+                }
+            }
+        }
+        if matches!(rest.as_str(), "**" | "__" | "~~" | "==") {
+            i += 2;
+            continue;
+        }
+        if c[i] == '`' {
+            i += 1;
+            continue;
+        }
+        // a lone * or _ is emphasis only at a word's edge (keeps snake_case and 2 * 3)
+        if c[i] == '*' || c[i] == '_' {
+            let before = word(i.checked_sub(1).and_then(|p| c.get(p)));
+            let after = word(c.get(i + 1));
+            if before != after {
+                i += 1;
+                continue;
+            }
+        }
+        out.push(c[i]);
+        i += 1;
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn find(c: &[char], from: usize, pat: &str) -> Option<usize> {
+    let p: Vec<char> = pat.chars().collect();
+    (from..c.len().saturating_sub(p.len() - 1)).find(|&k| c[k..k + p.len()] == p[..])
 }
 
 pub fn parse_date(s: &str) -> Option<NaiveDate> {
@@ -168,9 +239,12 @@ pub fn burn(tasks: &[TaskInput], today: NaiveDate, days: u32) -> BurnData {
     let last7 = &out[out.len().saturating_sub(7)..];
     let done7: u32 = last7.iter().map(|d| d.done).sum();
     let created7: u32 = last7.iter().map(|d| d.created).sum();
+    let done_all: u32 = out.iter().map(|d| d.done).sum();
     BurnData {
         open_now: tasks.iter().filter(|t| t.state.is_open()).count() as u32,
-        done_per_day: done7 as f32 / last7.len().max(1) as f32,
+        // over the same days the bars draw, so the number and the chart agree
+        done_per_day: done_all as f32 / out.len().max(1) as f32,
+        done_7d: done7,
         net_7d: created7 as i32 - done7 as i32,
         days: out,
     }
@@ -292,10 +366,13 @@ pub fn widget(
                 0 => "steady".to_string(),
                 n => format!("{n} this week"),
             };
-            let summary = format!(
-                "{} open · {:.1} done/day · {trend}",
-                b.open_now, b.done_per_day
-            );
+            // a slow month must not read as zero next to bars that show done days
+            let rate = match b.done_per_day {
+                r if r <= 0.0 => "0".to_string(),
+                r if r < 0.1 => "<0.1".to_string(),
+                r => format!("{r:.1}"),
+            };
+            let summary = format!("{} open · {rate} done/day · {trend}", b.open_now);
             (burn_status(&b), summary, WidgetBody::TasksBurn(b))
         }
         WidgetKind::TasksDue => {
@@ -384,7 +461,51 @@ mod tests {
         assert_eq!(done, vec![0, 0, 1, 0]);
         assert_eq!(burn.open_now, 2);
         assert_eq!(burn.net_7d, 1);
+        assert_eq!(burn.done_7d, 1);
+        assert_eq!(burn.done_per_day, 0.25);
         assert_eq!(burn_status(&burn), WidgetStatus::Warn);
+    }
+
+    #[test]
+    fn burn_rate_matches_the_bars_when_the_week_was_quiet() {
+        // done earlier in the window but not this week: the bars show it, so must the rate
+        let today = d("2026-11-10");
+        let mut a = t("a", TaskState::Done);
+        a.ended = Some("2026-10-20".into());
+        let mut b = t("b", TaskState::Done);
+        b.ended = Some("2026-10-25".into());
+        let burn = burn(&[a, b, t("c", TaskState::Open)], today, 30);
+        let drawn: u32 = burn.days.iter().map(|x| x.done).sum();
+        assert_eq!(drawn, 2);
+        assert_eq!(burn.done_per_day, 2.0 / 30.0);
+        assert_eq!(burn.done_7d, 0);
+    }
+
+    #[test]
+    fn plain_text_strips_markdown() {
+        assert_eq!(
+            plain_text("**Phase 5, later/optional**: try _it_"),
+            "Phase 5, later/optional: try it"
+        );
+        assert_eq!(
+            plain_text("Read [the guide](https://x.y/a) and ![pic](p.png)"),
+            "Read the guide and pic"
+        );
+        assert_eq!(
+            plain_text("See [[Projects/Garden#Beds|the beds]] and [[Notes/Fence#Posts]]"),
+            "See the beds and Fence"
+        );
+        assert_eq!(
+            plain_text("Run `cargo  test` ~~now~~ =="),
+            "Run cargo test now"
+        );
+        // not emphasis: snake_case, arithmetic, a bracket that isn't a link
+        assert_eq!(
+            plain_text("fix my_var_name, 2 * 3, [draft] note"),
+            "fix my_var_name, 2 * 3, [draft] note"
+        );
+        assert_eq!(plain_text("[[unclosed"), "[[unclosed");
+        assert_eq!(plain_text(""), "");
     }
 
     #[test]
@@ -469,6 +590,14 @@ mod tests {
         .unwrap();
         let i = from_task(&task);
         assert_eq!(i.state, TaskState::Waiting);
+        // markdown is reduced to text; a line with no words of its own names its note
+        task.description = "**Lay** the [[Beds|line]]".into();
+        assert_eq!(from_task(&task).title, "Lay the line");
+        task.description = "[[Beds]]".into();
+        assert_eq!(from_task(&task).title, "Beds");
+        task.description = String::new();
+        assert_eq!(from_task(&task).title, "x");
+        task.description = "Lay the line".into();
         assert_eq!(
             (i.title.as_str(), i.priority.as_deref()),
             ("Lay the line", Some("high"))

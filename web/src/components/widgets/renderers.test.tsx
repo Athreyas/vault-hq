@@ -40,6 +40,16 @@ describe("renderers", () => {
     expect(out).toContain("<svg");
   });
 
+  it("draws burn numbers that agree with the bars", () => {
+    const day = (date: string, done: number) => ({ date, open: 5, created: 0, done });
+    const out = html(
+      inst("tasks_burn"),
+      data("tasks_burn", { type: "tasksBurn", days: [day("2026-11-01", 3), day("2026-11-02", 0), day("2026-11-03", 1)], openNow: 5, donePerDay: 4 / 3, done7d: 4, net7d: -4 }),
+    );
+    expect(out).toContain("1.3/d");
+    expect(out).toContain("week 4 done");
+  });
+
   it("draws tasks, json and unavailable", () => {
     const tasks = html(
       inst("tasks_due"),

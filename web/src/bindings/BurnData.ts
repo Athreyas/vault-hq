@@ -3,9 +3,13 @@ import type { BurnDay } from "./BurnDay";
 
 export type BurnData = { days: Array<BurnDay>, openNow: number, 
 /**
- * Tasks done per day over the last 7 days.
+ * Tasks done per day over the whole window (`days`), so it matches the bars.
  */
 donePerDay: number, 
+/**
+ * Tasks done in the last 7 days.
+ */
+done7d: number, 
 /**
  * Created minus done over the last 7 days: above zero, the list is growing.
  */

@@ -69,6 +69,19 @@ fn plural_days(n: i64) -> String {
     format!("{n} day{}", if n == 1 { "" } else { "s" })
 }
 
+/// The title without a leading `label:` the note already carries ("Proposal: …"), so
+/// a row that shows the label first doesn't say it twice.
+fn without_label(label: &str, title: String) -> String {
+    let rest = title
+        .get(..label.len())
+        .filter(|head| head.eq_ignore_ascii_case(label))
+        .and_then(|_| title[label.len()..].strip_prefix(':'))
+        .map(str::trim)
+        .filter(|rest| !rest.is_empty())
+        .map(str::to_string);
+    rest.unwrap_or(title)
+}
+
 fn collect(snaps: &[Snapshot], today: &str) -> Vec<Item> {
     let mut out = Vec::new();
     for (si, s) in snaps.iter().enumerate() {
@@ -76,8 +89,8 @@ fn collect(snaps: &[Snapshot], today: &str) -> Vec<Item> {
         let base = |kind, label: String, title: String, detail: String, rel: &str| Need {
             id: String::new(),
             kind,
+            title: without_label(&label, title),
             label,
-            title,
             detail,
             vault: s.vault.id.clone(),
             vault_name: s.vault.name.clone(),
@@ -453,6 +466,24 @@ mod tests {
             "00-Inbox/2026-11-01-proposal-garden.md",
             "---\ntitle: Move beds\n---\nPlan\n",
         );
+    }
+
+    #[test]
+    fn a_title_does_not_repeat_its_label() {
+        assert_eq!(
+            without_label("Proposal", "Proposal: start the CLI as a dry run".into()),
+            "start the CLI as a dry run"
+        );
+        assert_eq!(
+            without_label("Proposal", "proposal:  move beds".into()),
+            "move beds"
+        );
+        assert_eq!(
+            without_label("Proposal", "Proposals for later".into()),
+            "Proposals for later"
+        );
+        assert_eq!(without_label("Proposal", "Proposal:".into()), "Proposal:");
+        assert_eq!(without_label("Proposal", "Prö".into()), "Prö");
     }
 
     #[test]

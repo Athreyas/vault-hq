@@ -81,7 +81,9 @@ impl TasksState {
         if g.vaults.is_empty() {
             return Err(Error::Unavailable("No vault is open.".into()));
         }
-        Ok(g.index().tasks().cloned().collect())
+        // finished, not raw: raw index entries carry no urgency and no hidden flag
+        let today = resolve_today(None)?;
+        Ok(g.index().finished(today))
     }
 
     fn lock(&self) -> Result<MutexGuard<'_, Inner>> {
@@ -275,6 +277,20 @@ mod tests {
             })
             .unwrap();
         assert_eq!(t.note, format!("{}:09-Planning/Tasks.md", v.id));
+    }
+
+    #[test]
+    fn all_tasks_carry_urgency() {
+        // the widgets rank by this; raw index entries are all 0.0
+        let dir = tempfile::tempdir().unwrap();
+        let vdir = dir.path().join("v");
+        std::fs::create_dir_all(&vdir).unwrap();
+        std::fs::write(vdir.join("a.md"), "- [ ] urgent ⏫\n- [ ] plain\n").unwrap();
+        let st = TasksState::new(dir.path().join("cache"));
+        st.set_vaults(vec![Vault::open(&vdir).unwrap()]);
+        let all = st.all_tasks().unwrap();
+        let hi = all.iter().find(|t| t.description == "urgent").unwrap();
+        assert!(hi.urgency > 0.0);
     }
 
     #[test]

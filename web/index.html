@@ -11,9 +11,53 @@
       rel="stylesheet"
     />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='0' fill='%230e1024'/><path d='M7 9l8 7-8 7M17 23h9' stroke='%23e39a2d' stroke-width='3' fill='none'/></svg>" />
+    <!-- The boot screen paints before any script or font arrives, so the window is never a
+         blank frame while the vaults load. tokens.css only loads with the app bundle, so
+         these few colours repeat its dark ground, ink and accent (and the window colour
+         set in src-tauri/src/windows.rs); React replaces #root on its first render. -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #121212;
+      }
+      .boot {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        min-height: 100vh;
+        font: 13px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+        color: #a8a49b;
+      }
+      .boot-mark {
+        font-size: 22px;
+        font-weight: 700;
+        color: #e39a2d;
+      }
+      .boot-cursor {
+        animation: boot-blink 1s steps(1) infinite;
+      }
+      @keyframes boot-blink {
+        50% {
+          opacity: 0;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-cursor {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot" role="status" aria-live="polite">
+        <span class="boot-mark"><span class="boot-cursor" aria-hidden="true">▌</span>hq</span>
+        <span>loading vaults…</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
