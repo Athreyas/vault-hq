@@ -7,7 +7,7 @@ import type { WidgetKind } from "../../bindings/WidgetKind.ts";
 import type { WidgetTask } from "../../bindings/WidgetTask.ts";
 import Memories from "../BookmarksMemories.tsx";
 import { Bars, Meter, Spark } from "./charts.tsx";
-import { ago, bytes, dueLabel, uptime, zoneTime } from "./layout.ts";
+import { ago, bytes, dueLabel, perDay, uptime, zoneTime } from "./layout.ts";
 
 export interface RendererProps {
   instance: WidgetInstance;
@@ -176,14 +176,13 @@ function Burn({ body }: { body: Body<"tasksBurn"> }) {
       <div className="w-metric">
         <span className="w-key">done</span>
         <Bars values={done} label="Done per day" />
-        <span className="w-num">{body.donePerDay.toFixed(1)}/d</span>
+        <span className="w-num" title={`average over ${body.days.length} days`}>
+          {perDay(body.donePerDay)}/d
+        </span>
       </div>
       <p className="w-row w-muted">
         <span>{body.days.length} days</span>
-        <span>
-          week {body.net7d > 0 ? "+" : ""}
-          {body.net7d}
-        </span>
+        <span title={`created minus done this week: ${body.net7d > 0 ? "+" : ""}${body.net7d}`}>week {body.done7d} done</span>
       </p>
     </div>
   );

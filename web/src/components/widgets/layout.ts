@@ -61,6 +61,12 @@ export function dueLabel(dueIn: number | null): string {
   return `in ${dueIn}d`;
 }
 
+/** A per-day rate: a slow month still reads as more than zero when bars show done days. */
+export function perDay(v: number): string {
+  if (v <= 0) return "0";
+  return v < 0.1 ? "<0.1" : v.toFixed(1);
+}
+
 export function bytes(n: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let v = n;

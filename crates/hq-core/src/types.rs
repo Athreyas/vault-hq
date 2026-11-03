@@ -1631,8 +1631,10 @@ pub struct BurnDay {
 pub struct BurnData {
     pub days: Vec<BurnDay>,
     pub open_now: u32,
-    /// Tasks done per day over the last 7 days.
+    /// Tasks done per day over the whole window (`days`), so it matches the bars.
     pub done_per_day: f32,
+    /// Tasks done in the last 7 days.
+    pub done_7d: u32,
     /// Created minus done over the last 7 days: above zero, the list is growing.
     pub net_7d: i32,
 }

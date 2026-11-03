@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { WidgetCatalogEntry } from "../../bindings/WidgetCatalogEntry.ts";
 import type { WidgetLayout } from "../../bindings/WidgetLayout.ts";
-import { addWidget, ago, bytes, canAdd, dueLabel, move, moveById, pollSecs, removeWidget, setConfig, uptime, widgetTitle, zoneTime } from "./layout.ts";
+import { addWidget, ago, bytes, canAdd, dueLabel, move, moveById, perDay, pollSecs, removeWidget, setConfig, uptime, widgetTitle, zoneTime } from "./layout.ts";
 
 const entry = (kind: WidgetCatalogEntry["kind"], multiple: boolean, refreshSecs = 60): WidgetCatalogEntry => ({
   kind,
@@ -83,5 +83,14 @@ describe("formatting", () => {
   it("time zones", () => {
     expect(zoneTime("UTC", new Date(Date.UTC(2026, 0, 1, 9, 5)), false)).toBe("09:05");
     expect(zoneTime("Not/AZone", new Date(), false)).toBeNull();
+  });
+});
+
+describe("perDay", () => {
+  it("never reads zero when something was done", () => {
+    expect(perDay(0)).toBe("0");
+    expect(perDay(1 / 30)).toBe("<0.1");
+    expect(perDay(0.5)).toBe("0.5");
+    expect(perDay(2.25)).toBe("2.3");
   });
 });
