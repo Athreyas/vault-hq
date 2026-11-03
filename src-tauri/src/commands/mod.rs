@@ -22,6 +22,8 @@ pub mod tasks;
 pub mod search;
 // F bookmarks
 pub mod bookmarks;
+// E onboarding
+pub mod onboarding;
 // W widgets
 pub mod widgets;
 
@@ -92,6 +94,18 @@ macro_rules! hq_commands {
             bookmarks::bookmarks_enrich_cancel,
             bookmarks::memories,
             bookmarks::memory_dismiss,
+            // E onboarding
+            onboarding::onboarding_state,
+            onboarding::onboarding_set_step,
+            onboarding::onboarding_locations,
+            onboarding::onboarding_scaffold,
+            onboarding::agents_catalog,
+            onboarding::agent_prompt,
+            onboarding::agent_config_preview,
+            onboarding::agent_config_apply,
+            onboarding::import_analyze,
+            onboarding::import_apply,
+            onboarding::import_undo,
             // W widgets
             widgets::widgets_catalog,
             widgets::widgets_layout_get,

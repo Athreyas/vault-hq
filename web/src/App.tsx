@@ -13,6 +13,8 @@ import Palette from "./components/Palette.tsx";
 import Settings from "./components/Settings.tsx";
 import Tasks from "./components/Tasks.tsx";
 import TopBar from "./components/TopBar.tsx";
+import { onboardingState, setStep } from "./api/onboarding.ts";
+import Onboarding from "./components/onboarding/Onboarding.tsx";
 
 // ---- routes: streams add a view name below and its element in <main> ----
 export const VIEWS = ["home", "needs", "days", "tasks", "inbox", "notes", "ask", "bookmarks"] as const;
@@ -76,6 +78,8 @@ export default function App() {
   const [create, setCreate] = useState<CreateRequest | null>(null);
   const [askReq, setAskReq] = useState<AskRequest | null>(null);
   const status = useCall<AppStatus>(api.status, "status", { refreshMs: 60_000 });
+  // first run: the setup wizard until onboarding is done; Settings can bring it back
+  const [setup, setSetup] = useState(false);
   const counts = useCall<Counts>(loadCounts, "counts", { refreshMs: 60_000 });
   const reloadStatus = status.reload;
   const reloadCounts = counts.reload;
@@ -93,6 +97,22 @@ export default function App() {
       window.removeEventListener("hashchange", onHash);
       clearInterval(clock);
     };
+  }, []);
+
+  useEffect(() => {
+    onboardingState().then(
+      (o) => setSetup(!o.done),
+      () => setSetup(false),
+    );
+    const rerun = () => {
+      setSettings(false);
+      setStep("welcome").then(
+        () => setSetup(true),
+        () => setSetup(true),
+      );
+    };
+    window.addEventListener("hq:setup", rerun);
+    return () => window.removeEventListener("hq:setup", rerun);
   }, []);
 
   const notify: Notify = useCallback((message, tone = "ok") => {
@@ -159,7 +179,7 @@ export default function App() {
         if (typing(e.target)) (e.target as HTMLElement).blur();
         return;
       }
-      if (palette || settings || create || typing(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (setup || palette || settings || create || typing(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
       const n = Number(e.key);
       if (n >= 1 && n <= VIEWS.length) go(`#/${VIEWS[n - 1]}`);
       else if (e.key === "/") {
@@ -173,7 +193,18 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [go, palette, settings, create, startCreate]);
+  }, [go, setup, palette, settings, create, startCreate]);
+
+  if (setup) {
+    return (
+      <Onboarding
+        onFinish={() => {
+          setSetup(false);
+          reloadStatus();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="app">

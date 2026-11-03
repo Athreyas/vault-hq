@@ -1576,6 +1576,7 @@ name = "hq-core"
 version = "2.0.0-dev"
 dependencies = [
  "chrono",
+ "indexmap 2.14.2",
  "libc",
  "notify",
  "plist",
@@ -1583,9 +1584,11 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "similar",
  "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
+ "toml_edit 0.25.17+spec-1.1.0",
  "ts-rs",
  "ureq",
  "url",
@@ -3582,6 +3585,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
+name = "similar"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
 name = "siphasher"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4366,6 +4375,7 @@ dependencies = [
  "indexmap 2.14.2",
  "toml_datetime 1.1.2+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 1.0.4",
 ]
 

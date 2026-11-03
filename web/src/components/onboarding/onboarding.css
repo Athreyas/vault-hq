@@ -1,0 +1,432 @@
+/* The onboarding wizard. Terminal look; every colour and size comes from tokens.css. */
+
+.ob {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-machine);
+}
+
+.ob-head {
+  border-bottom: var(--line-w) solid var(--line);
+  padding: var(--space-4) var(--space-6) 0;
+  background: var(--bg-sunk);
+}
+
+.ob-brand {
+  color: var(--accent);
+  font-size: var(--t-sm);
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-3);
+}
+
+.ob-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+}
+
+.ob-step {
+  background: none;
+  border: var(--line-w) solid transparent;
+  border-radius: var(--radius);
+  color: var(--ink-faint);
+  cursor: pointer;
+  font-size: var(--t-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.ob-step kbd,
+.ob kbd {
+  border: var(--line-w) solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink-muted);
+  font-family: var(--font-machine);
+  font-size: var(--t-xs);
+  padding: 0 var(--space-2);
+}
+
+.ob-step:hover {
+  color: var(--ink);
+}
+
+.ob-step.is-visited {
+  color: var(--ink-muted);
+}
+
+.ob-step.is-visited::after {
+  content: " ✓";
+  color: var(--good);
+}
+
+.ob-step.is-current {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ob-progress {
+  background: var(--line);
+  height: 2px;
+}
+
+.ob-progress > div {
+  background: var(--accent);
+  height: 100%;
+  transition: width 120ms var(--ease);
+}
+
+.ob-main {
+  overflow-y: auto;
+  padding: var(--space-6);
+  max-width: 920px;
+  width: 100%;
+  margin: 0 auto;
+  outline: none;
+}
+
+.ob-title {
+  font-size: var(--t-xl);
+  font-weight: 500;
+  margin: 0 0 var(--space-5);
+}
+
+.ob-h2 {
+  font-size: var(--t-lg);
+  font-weight: 500;
+  margin: 0;
+  color: var(--accent);
+}
+
+.ob-lede {
+  font-family: var(--font-human);
+  font-size: var(--t-lg);
+  color: var(--ink);
+  margin: 0;
+}
+
+.ob-prose p,
+.ob-prose li {
+  font-family: var(--font-human);
+}
+
+.ob-muted {
+  color: var(--ink-muted);
+}
+
+.ob-label {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+}
+
+.ob-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ob-stack > p {
+  margin: 0;
+}
+
+.ob-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+
+.ob-grow {
+  flex: 1 1 320px;
+}
+
+.ob-box {
+  border: var(--line-w) solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  padding: var(--space-4) var(--space-5);
+  margin: 0;
+}
+
+.ob-box > legend {
+  padding: 0 var(--space-2);
+}
+
+.ob-list {
+  margin: var(--space-3) 0;
+  padding-left: var(--space-6);
+}
+
+.ob-list li + li {
+  margin-top: var(--space-2);
+}
+
+.ob-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  cursor: pointer;
+}
+
+.ob-row input {
+  margin-top: 0.3em;
+  accent-color: var(--accent);
+}
+
+.ob-row-main {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ob-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.ob input:not([type="checkbox"]):not([type="radio"]),
+.ob select {
+  background: var(--bg-sunk);
+  border: var(--line-w) solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-family: var(--font-human);
+  font-size: var(--t-md);
+  padding: var(--space-3);
+}
+
+.ob input:focus,
+.ob select:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.ob-path {
+  width: 100%;
+}
+
+.ob-button {
+  background: var(--bg-raised);
+  border: var(--line-w) solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: var(--t-sm);
+  padding: var(--space-2) var(--space-4);
+}
+
+.ob-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.ob-button.is-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+.ob-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.ob-link {
+  background: none;
+  border: 0;
+  color: var(--link);
+  cursor: pointer;
+  font-size: var(--t-sm);
+  padding: 0;
+  text-decoration: underline;
+}
+
+.ob-segmented {
+  display: flex;
+}
+
+.ob-segmented > button {
+  background: none;
+  border: var(--line-w) solid var(--line-strong);
+  color: var(--ink-muted);
+  cursor: pointer;
+  font-size: var(--t-sm);
+  padding: var(--space-2) var(--space-4);
+}
+
+.ob-segmented > button + button {
+  border-left: 0;
+}
+
+.ob-segmented > .is-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ob-chip {
+  border: var(--line-w) solid var(--line-strong);
+  color: var(--ink-muted);
+  font-size: var(--t-xs);
+  padding: 0 var(--space-2);
+  white-space: nowrap;
+}
+
+.ob-status {
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-muted);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  overflow-wrap: anywhere;
+}
+
+.ob-status.is-ok {
+  border-left-color: var(--good);
+  color: var(--good);
+}
+
+.ob-status.is-error {
+  border-left-color: var(--attention);
+  color: var(--attention);
+}
+
+.ob code,
+.ob pre {
+  font-family: var(--font-machine);
+  font-size: var(--t-sm);
+}
+
+.ob-pre,
+.ob-copyable pre,
+.ob-diff pre {
+  background: var(--bg-sunk);
+  border: var(--line-w) solid var(--line);
+  margin: 0;
+  max-height: 360px;
+  overflow: auto;
+  padding: var(--space-4);
+  white-space: pre;
+}
+
+.ob-copyable {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.ob-copyable-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ob-diff-meta {
+  color: var(--ink-faint);
+}
+
+.ob-diff-hunk {
+  color: var(--link);
+}
+
+.ob-diff-add {
+  color: var(--good);
+}
+
+.ob-diff-del {
+  color: var(--attention);
+}
+
+.ob-diff-ctx {
+  color: var(--ink-muted);
+}
+
+.ob-agent-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0 var(--space-5);
+}
+
+.ob-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+
+.ob-fact {
+  border: var(--line-w) solid var(--line);
+  padding: var(--space-3);
+}
+
+.ob-fact dt {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+
+.ob-fact dd {
+  font-size: var(--t-lg);
+  margin: 0;
+}
+
+.ob-fact.is-warn dd {
+  color: var(--accent);
+}
+
+.ob-import {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ob-plan {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 0;
+  font-size: var(--t-sm);
+}
+
+.ob details > summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+}
+
+.ob-foot {
+  align-items: center;
+  background: var(--bg-sunk);
+  border-top: var(--line-w) solid var(--line);
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-6);
+}
+
+.ob-foot-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.ob-hint {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-progress > div {
+    transition: none;
+  }
+}

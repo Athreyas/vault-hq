@@ -17,6 +17,10 @@ libc = "0.2"
 walkdir = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
+# E onboarding
+similar = "2"
+toml_edit = "0.25"
+indexmap = { version = "2", features = ["serde"] }
 # C search (json, for the model server) and F bookmarks (native-tls: macOS Security.framework
 # and the system roots for fetching a saved page; no bundled CA list)
 ureq = { version = "3", default-features = false, features = ["json", "native-tls-no-default"] }

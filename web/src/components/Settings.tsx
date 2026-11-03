@@ -9,6 +9,7 @@ const SECTIONS = [
   ["look", "Appearance"],
   ["app", "App & agents"],
   ["privacy", "Privacy"],
+  ["about", "About"],
 ] as const;
 type Section = (typeof SECTIONS)[number][0];
 
@@ -119,6 +120,12 @@ export default function Settings({ status, onClose, notify, onChange }: { status
                 )}
                 <p className="set-note">Agents start this as a stdio MCP server. It uses the same vaults and the same file locks as the app.</p>
               </Row>
+              <Row k="setup">
+                <button type="button" className="link-button" onClick={() => window.dispatchEvent(new Event("hq:setup"))}>
+                  run setup again
+                </button>
+                <p className="set-note">The first-run wizard: vaults, agents and their MCP connections, tasks, local AI, bookmarks. Nothing is changed without a yes.</p>
+              </Row>
               <Row k="settings">
                 <button type="button" className="link-button" onClick={() => reveal("settings")}>
                   show settings.json
@@ -135,6 +142,39 @@ export default function Settings({ status, onClose, notify, onChange }: { status
               </Row>
               <Row k="keys">⌘K palette · ⌘, settings · 1–7 views · / ask · n new · e edit a note · ⌘S save</Row>
             </dl>
+          )}
+          {section === "about" && (
+            <div className="about">
+              <p className="about-name">
+                <b>▌hq</b> Vault HQ {status?.version ?? ""}
+              </p>
+              <p className="lede">Your second brain: anything you want to know, learn and remember, in one place. And it stays yours.</p>
+              <ul className="about-points">
+                <li>Everything lives as plain markdown in folders you choose. Any tool can read it; nothing needs exporting.</li>
+                <li>Search and Ask run on a model on this Mac or your home network. No account, no cloud, no telemetry.</li>
+                <li>Agents connect on your terms, under the same rules as you.</li>
+              </ul>
+              <dl className="set-list">
+                <Row k="envisioned">
+                  Envisioned and architected by{" "}
+                  <a className="note-link" href="https://monk97.me">
+                    Athreyas
+                  </a>
+                </Row>
+                <Row k="built">
+                  Built with{" "}
+                  <a className="note-link" href="https://claude.com/claude-code">
+                    Claude Code
+                  </a>
+                </Row>
+                <Row k="source">
+                  <a className="note-link" href="https://github.com/Athreyas/vault-hq">
+                    github.com/Athreyas/vault-hq
+                  </a>{" "}
+                  · MIT license
+                </Row>
+              </dl>
+            </div>
           )}
           {s && section === "privacy" && (
             <>
