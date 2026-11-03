@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./Ask.css";
 import type { AskRequest } from "../App.tsx";
-import { askCancel, askStart, conversationGet, conversationsList, errorText, ollamaStatus, search, vaultsList } from "../api/search.ts";
-import type { ConversationSummary, OllamaStatus, SearchScope } from "../api/search.ts";
+import { actionAdd, actionDraft, askCancel, askStart, conversationGet, conversationsList, errorText, ollamaStatus, search, vaultsList } from "../api/search.ts";
+import type { ActionDraft, ConversationSummary, OllamaStatus, SearchScope } from "../api/search.ts";
 import type { VaultInfo } from "../bindings/VaultInfo.ts";
 import AskHistory from "./AskHistory.tsx";
 import AskScope from "./AskScope.tsx";
@@ -65,12 +65,29 @@ export default function Ask({ req, suggestions }: { req: AskRequest | null; sugg
 
   const patch = (key: string, f: (t: UiTurn) => UiTurn) => setTurns((l) => l.map((t) => (t.key === key ? f(t) : t)));
 
-  async function run(q: string, mode: UiTurn["mode"]) {
+  async function run(q: string, mode: UiTurn["mode"], asQuestion = false) {
     q = q.trim();
     if (q.length < 2 || busy) return;
     const turn = newTurn(mode, q, scope);
     setQuestion("");
     setTurns((l) => [...l, turn]);
+    // "remind me to…", "add a task to…": a task card to confirm instead of an answer
+    if (mode === "ask" && !asQuestion) {
+      let draft: ActionDraft | null = null;
+      try {
+        draft = await actionDraft(q);
+      } catch {
+        // drafting is a convenience: if it fails the text is simply asked
+      }
+      if (draft?.isAction) {
+        patch(turn.key, (t) => ({ ...t, mode: "action", action: draft, streaming: false }));
+        return;
+      }
+    }
+    await answer(turn, q, mode);
+  }
+
+  async function answer(turn: UiTurn, q: string, mode: UiTurn["mode"]) {
     if (mode === "search") {
       try {
         const r = await search(q, scope);
@@ -93,6 +110,22 @@ export default function Ask({ req, suggestions }: { req: AskRequest | null; sugg
     } catch (e) {
       patch(turn.key, (t) => ({ ...t, error: errorText(e), streaming: false }));
     }
+  }
+
+  async function addAction(t: UiTurn) {
+    if (!t.action) return;
+    patch(t.key, (x) => ({ ...x, streaming: true, error: null }));
+    try {
+      const added = await actionAdd(t.action);
+      patch(t.key, (x) => ({ ...x, added, streaming: false }));
+    } catch (e) {
+      patch(t.key, (x) => ({ ...x, error: errorText(e), streaming: false }));
+    }
+  }
+
+  function askInstead(t: UiTurn) {
+    setTurns((l) => l.filter((x) => x.key !== t.key));
+    void run(t.question, "ask", true);
   }
 
   function stop(t: UiTurn) {
@@ -158,7 +191,17 @@ export default function Ask({ req, suggestions }: { req: AskRequest | null; sugg
 
         <ol className="ask-thread">
           {turns.map((t) => (
-            <AskTurn key={t.key} turn={t} vaultNames={vaultNames} />
+            <AskTurn
+              key={t.key}
+              turn={t}
+              vaultNames={vaultNames}
+              onAction={{
+                change: (d) => patch(t.key, (x) => ({ ...x, action: d })),
+                add: () => void addAction(t),
+                cancel: () => setTurns((l) => l.filter((x) => x.key !== t.key)),
+                ask: () => askInstead(t),
+              }}
+            />
           ))}
         </ol>
         <div ref={end} />

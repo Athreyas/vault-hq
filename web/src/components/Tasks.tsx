@@ -62,9 +62,11 @@ interface Props {
   onChange: () => void;
   /** Open a note (by note id) in the app's reader, at a line. */
   onOpenNote?: (note: string, line: number) => void;
+  /** Select this task (by key) once it is listed: a clicked reminder. */
+  focus?: string | null;
 }
 
-export default function Tasks({ notify, onChange, onOpenNote }: Props) {
+export default function Tasks({ notify, onChange, onOpenNote, focus }: Props) {
   const today = localToday();
   const [filter, setFilter] = useState("");
   const [group, setGroup] = useState<TaskGroupBy>(() => readPref("group", GROUPS.map((g) => g.key), "due"));
@@ -107,6 +109,17 @@ export default function Tasks({ notify, onChange, onOpenNote }: Props) {
   // one row per (group, task): a task with two tags shows twice when grouped by tag
   const rows = useMemo(() => (data?.groups ?? []).flatMap((g) => g.tasks.map((t) => ({ group: g.key, task: t }))), [data]);
   const current = rows[Math.min(sel, rows.length - 1)]?.task;
+
+  // a reminder was clicked: select its task (once per focus, when it is in the list)
+  const focused = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focus || focused.current === focus) return;
+    const i = rows.findIndex((r) => r.task.key === focus || r.task.id === focus);
+    if (i >= 0) {
+      focused.current = focus;
+      setSel(i);
+    }
+  }, [focus, rows]);
 
   useEffect(() => {
     listRef.current?.querySelector(".tk-row.is-selected")?.scrollIntoView({ block: "nearest" });

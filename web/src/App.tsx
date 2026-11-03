@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, applyTheme, iso, useCall, type AppStatus } from "./api.ts";
+import { api, applyTheme, iso, on, useCall, type AppStatus } from "./api.ts";
 import Ask from "./components/Ask.tsx";
 import Bookmarks from "./components/Bookmarks.tsx";
 import Create, { type CreateKind } from "./components/Create.tsx";
@@ -75,6 +75,8 @@ export default function App() {
   const [settings, setSettings] = useState(false);
   const [create, setCreate] = useState<CreateRequest | null>(null);
   const [askReq, setAskReq] = useState<AskRequest | null>(null);
+  // C reminders: the task a clicked notification is about
+  const [focusTask, setFocusTask] = useState<string | null>(null);
   const status = useCall<AppStatus>(api.status, "status", { refreshMs: 60_000 });
   const counts = useCall<Counts>(loadCounts, "counts", { refreshMs: 60_000 });
   const reloadStatus = status.reload;
@@ -107,6 +109,15 @@ export default function App() {
   const go = useCallback((hash: string) => {
     window.location.hash = hash;
   }, []);
+
+  useEffect(
+    () =>
+      on("tasks://open", (key) => {
+        setFocusTask(key);
+        go("#/tasks");
+      }),
+    [go],
+  );
 
   const ask = useCallback(
     (q: string, mode: "ask" | "search" = "ask") => {
@@ -182,7 +193,7 @@ export default function App() {
         {route.view === "home" && <Home date={route.date} onAsk={ask} />}
         {route.view === "needs" && <NeedsYou notify={notify} onChange={changed} />}
         {route.view === "days" && <Days date={route.date} span={route.span} notify={notify} />}
-        {route.view === "tasks" && <Tasks notify={notify} onChange={changed} />}
+        {route.view === "tasks" && <Tasks notify={notify} onChange={changed} focus={focusTask} />}
         {route.view === "inbox" && <Inbox notify={notify} onChange={changed} />}
         {route.view === "notes" && <Notes note={route.note} notify={notify} />}
         {route.view === "ask" && <Ask req={askReq} suggestions={[]} />}
