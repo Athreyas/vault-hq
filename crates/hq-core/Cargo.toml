@@ -15,6 +15,8 @@ sha2 = "0.10"
 libc = "0.2"
 walkdir = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
+ureq = { version = "3.5.1", default-features = false, features = ["native-tls-no-default"] }
 
 [dev-dependencies]
 tempfile = "3"
