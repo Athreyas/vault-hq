@@ -16,7 +16,9 @@ libc = "0.2"
 walkdir = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
-ureq = { version = "3.5.1", default-features = false, features = ["native-tls-no-default"] }
+# json for the model server client (C); native TLS with the system trust store for the
+# JSON status widget (W), which may point at https
+ureq = { version = "3.5.1", default-features = false, features = ["json", "native-tls-no-default"] }
 
 [dev-dependencies]
 tempfile = "3"
