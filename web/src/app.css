@@ -2378,3 +2378,18 @@ textarea::placeholder {
 .set-vault-row .set-path {
   overflow-wrap: anywhere;
 }
+
+/* a view that threw while rendering: shown in its place, the rest of the window works */
+.view-error {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-5) auto;
+  max-width: 720px;
+  padding: var(--space-4) var(--space-5);
+  border: var(--line-w) solid var(--attention);
+  background: var(--bg-raised);
+}
+
+.view-error b {
+  color: var(--attention);
+}

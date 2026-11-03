@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Notify } from "../App.tsx";
 import { VIEWS } from "../App.tsx";
+import ErrorBoundary from "./ErrorBoundary.tsx";
 import { api, notBuilt, setTheme, useCall, type AppStatus, type Settings as SettingsData, type Theme } from "../api.ts";
 
 const SECTIONS = [
@@ -105,89 +106,91 @@ export default function Settings({ status, onClose, notify, onChange }: { status
         <div className="settings-body">
           {error && <p className="error">{error}</p>}
           {!s && !error && <p className="empty">Reading settings…</p>}
-          {s && section === "vaults" && <Vaults s={s} status={status} act={act} save={save} reveal={reveal} />}
-          {s && section === "ai" && <LocalAi s={s} save={save} copy={copy} />}
-          {s && section === "keys" && <Keys s={s} save={save} />}
-          {s && section === "look" && <Look s={s} notify={notify} />}
-          {s && section === "app" && (
-            <dl className="set-list">
-              <Row k="version">Vault HQ {status?.version ?? "…"}</Row>
-              <Row k="agents (MCP)">
-                <code className="set-path">{status?.mcpCommand ?? "…"}</code>{" "}
-                {status && (
-                  <button type="button" className="link-button" onClick={() => void copy(status.mcpCommand)}>
-                    copy
+          <ErrorBoundary name="section" resetKey={section}>
+            {s && section === "vaults" && <Vaults s={s} status={status} act={act} save={save} reveal={reveal} />}
+            {s && section === "ai" && <LocalAi s={s} save={save} copy={copy} />}
+            {s && section === "keys" && <Keys s={s} save={save} />}
+            {s && section === "look" && <Look s={s} notify={notify} />}
+            {s && section === "app" && (
+              <dl className="set-list">
+                <Row k="version">Vault HQ {status?.version ?? "…"}</Row>
+                <Row k="agents (MCP)">
+                  <code className="set-path">{status?.mcpCommand ?? "…"}</code>{" "}
+                  {status && (
+                    <button type="button" className="link-button" onClick={() => void copy(status.mcpCommand)}>
+                      copy
+                    </button>
+                  )}
+                  <p className="set-note">Agents start this as a stdio MCP server. It uses the same vaults and the same file locks as the app.</p>
+                </Row>
+                <Row k="setup">
+                  <button type="button" className="link-button" onClick={() => window.dispatchEvent(new Event("hq:setup"))}>
+                    run setup again
                   </button>
-                )}
-                <p className="set-note">Agents start this as a stdio MCP server. It uses the same vaults and the same file locks as the app.</p>
-              </Row>
-              <Row k="setup">
-                <button type="button" className="link-button" onClick={() => window.dispatchEvent(new Event("hq:setup"))}>
-                  run setup again
-                </button>
-                <p className="set-note">The first-run wizard: vaults, agents and their MCP connections, tasks, local AI, bookmarks. Nothing is changed without a yes.</p>
-              </Row>
-              <Row k="settings">
-                <button type="button" className="link-button" onClick={() => reveal("settings")}>
-                  show settings.json
-                </button>
-              </Row>
-              <Row k="app files">
-                <button type="button" className="link-button" onClick={() => reveal("support")}>
-                  show support folder
-                </button>{" "}
-                ·{" "}
-                <button type="button" className="link-button" onClick={() => reveal("cache")}>
-                  show cache (search index, task index)
-                </button>
-              </Row>
-              <Row k="keys">⌘K palette · ⌘, settings · 1–{VIEWS.length} views · / ask · n new · e edit a note · ⌘S save</Row>
-            </dl>
-          )}
-          {section === "about" && (
-            <div className="about">
-              <p className="about-name">
-                <b>▌hq</b> Vault HQ {status?.version ?? ""}
-              </p>
-              <p className="lede">Your second brain: anything you want to know, learn and remember, in one place. And it stays yours.</p>
-              <ul className="about-points">
-                <li>Everything lives as plain markdown in folders you choose. Any tool can read it; nothing needs exporting.</li>
-                <li>Search and Ask run on a model on this Mac or your home network. No account, no cloud, no telemetry.</li>
-                <li>Agents connect on your terms, under the same rules as you.</li>
-              </ul>
-              <dl className="set-list">
-                <Row k="envisioned">
-                  Envisioned and architected by{" "}
-                  <a className="note-link" href="https://monk97.me">
-                    Athreyas
-                  </a>
+                  <p className="set-note">The first-run wizard: vaults, agents and their MCP connections, tasks, local AI, bookmarks. Nothing is changed without a yes.</p>
                 </Row>
-                <Row k="built">
-                  Built with{" "}
-                  <a className="note-link" href="https://claude.com/claude-code">
-                    Claude Code
-                  </a>
+                <Row k="settings">
+                  <button type="button" className="link-button" onClick={() => reveal("settings")}>
+                    show settings.json
+                  </button>
                 </Row>
-                <Row k="source">
-                  <a className="note-link" href="https://github.com/Athreyas/vault-hq">
-                    github.com/Athreyas/vault-hq
-                  </a>{" "}
-                  · MIT license
+                <Row k="app files">
+                  <button type="button" className="link-button" onClick={() => reveal("support")}>
+                    show support folder
+                  </button>{" "}
+                  ·{" "}
+                  <button type="button" className="link-button" onClick={() => reveal("cache")}>
+                    show cache (search index, task index)
+                  </button>
                 </Row>
+                <Row k="keys">⌘K palette · ⌘, settings · 1–{VIEWS.length} views · / ask · n new · e edit a note · ⌘S save</Row>
               </dl>
-            </div>
-          )}
-          {s && section === "privacy" && (
-            <>
-              <p className="lede">There is no account. HQ runs on this Mac, for the person logged in, and has nothing to sign in to.</p>
-              <dl className="set-list">
-                <Row k="your notes">plain markdown in the vault folders above; HQ keeps no copy of its own</Row>
-                <Row k="talks to">the local model server you set (this Mac or the home network), a page you save as a bookmark (its title), and nothing else. No analytics, no telemetry, no cloud model.</Row>
-                <Row k="stores">settings, and rebuildable indexes in the cache folder</Row>
-                <Row k="refuses">vault folders named in the blocked list, before reading anything inside them</Row>
-              </dl>
-            </>
-          )}
+            )}
+            {section === "about" && (
+              <div className="about">
+                <p className="about-name">
+                  <b>▌hq</b> Vault HQ {status?.version ?? ""}
+                </p>
+                <p className="lede">Your second brain: anything you want to know, learn and remember, in one place. And it stays yours.</p>
+                <ul className="about-points">
+                  <li>Everything lives as plain markdown in folders you choose. Any tool can read it; nothing needs exporting.</li>
+                  <li>Search and Ask run on a model on this Mac or your home network. No account, no cloud, no telemetry.</li>
+                  <li>Agents connect on your terms, under the same rules as you.</li>
+                </ul>
+                <dl className="set-list">
+                  <Row k="envisioned">
+                    Envisioned and architected by{" "}
+                    <a className="note-link" href="https://monk97.me">
+                      Athreyas
+                    </a>
+                  </Row>
+                  <Row k="built">
+                    Built with{" "}
+                    <a className="note-link" href="https://claude.com/claude-code">
+                      Claude Code
+                    </a>
+                  </Row>
+                  <Row k="source">
+                    <a className="note-link" href="https://github.com/Athreyas/vault-hq">
+                      github.com/Athreyas/vault-hq
+                    </a>{" "}
+                    · MIT license
+                  </Row>
+                </dl>
+              </div>
+            )}
+            {s && section === "privacy" && (
+              <>
+                <p className="lede">There is no account. HQ runs on this Mac, for the person logged in, and has nothing to sign in to.</p>
+                <dl className="set-list">
+                  <Row k="your notes">plain markdown in the vault folders above; HQ keeps no copy of its own</Row>
+                  <Row k="talks to">the local model server you set (this Mac or the home network), a page you save as a bookmark (its title), and nothing else. No analytics, no telemetry, no cloud model.</Row>
+                  <Row k="stores">settings, and rebuildable indexes in the cache folder</Row>
+                  <Row k="refuses">vault folders named in the blocked list, before reading anything inside them</Row>
+                </dl>
+              </>
+            )}
+          </ErrorBoundary>
         </div>
       </div>
     </div>
@@ -360,8 +363,9 @@ function LocalAi({ s, save, copy }: { s: SettingsData; save: Save; copy: (t: str
             "checking…"
           ) : (
             <>
-              <Ok on={o.up} yes="reachable" no="not reachable" /> · <Ok on={o.chatReady} yes="answer model ready" no="answer model missing" /> · <Ok on={o.embedReady} yes="search model ready" no="search model missing" />
-              {!o.up && !o.binary && <p className="set-note">Ollama is not installed. Get it from ollama.com, then come back.</p>}
+              <Ok on={o.up} yes="reachable" no="not reachable" /> · <Ok on={o.hasChat} yes={`${o.chatModel} ready`} no={`${o.chatModel} missing`} /> · <Ok on={o.hasEmbed} yes={`${o.embedModel} ready`} no={`${o.embedModel} missing`} />
+              {o.problem && <p className="set-note set-bad">{o.problem}</p>}
+              {!o.up && !o.binary && !o.problem && <p className="set-note">Ollama is not installed. Get it from ollama.com, then come back.</p>}
             </>
           )}
         </Row>
@@ -387,8 +391,33 @@ function LocalAi({ s, save, copy }: { s: SettingsData; save: Save; copy: (t: str
       {rec.data && (
         <>
           <h2 className="set-h">Recommended for this Mac ({rec.data.memoryGb} GB)</h2>
+          <dl className="set-list">
+            <Row k="search model">
+              <code>{rec.data.embed}</code>{" "}
+              {ai.embedModel !== rec.data.embed && (
+                <button type="button" className="link-button" onClick={() => setAi({ ...ai, embedModel: rec.data!.embed })}>
+                  use
+                </button>
+              )}
+            </Row>
+            <Row k="answer models">
+              {rec.data.chat.length === 0
+                ? "none fits this Mac's memory"
+                : rec.data.chat.map((m, i) => (
+                    <span key={m}>
+                      {i > 0 && " · "}
+                      <code>{m}</code>{" "}
+                      {ai.chatModel !== m && (
+                        <button type="button" className="link-button" onClick={() => setAi({ ...ai, chatModel: m })}>
+                          use
+                        </button>
+                      )}
+                    </span>
+                  ))}
+            </Row>
+          </dl>
           <ul className="set-pulls">
-            {rec.data.pulls.map((p) => (
+            {rec.data.commands.map((p) => (
               <li key={p}>
                 <code>{p}</code>{" "}
                 <button type="button" className="link-button" onClick={() => void copy(p)}>

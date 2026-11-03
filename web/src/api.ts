@@ -1,7 +1,8 @@
 // The only place the UI talks to the app: Tauri `invoke` for commands, `listen` for
-// events (SPEC 10). Everything is typed: generated bindings where a stream has exported
-// its types, ./shapes.ts where it has not yet. A command that is not in this build
-// comes back as an HqError of kind "Unavailable", so a view can say so and carry on.
+// events (SPEC 10). Everything is typed from the generated bindings in ./bindings, never
+// hand-written shapes, so a Rust type change breaks the typecheck, not the window.
+// A command that is not in this build comes back as an HqError of kind "Unavailable",
+// so a view can say so and carry on.
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -45,7 +46,15 @@ import type { WidgetCatalogEntry } from "./bindings/WidgetCatalogEntry.ts";
 import type { WidgetData } from "./bindings/WidgetData.ts";
 import type { WidgetKind } from "./bindings/WidgetKind.ts";
 import type { WidgetLayout } from "./bindings/WidgetLayout.ts";
-import type * as S from "./shapes.ts";
+import type { AskEnvelope } from "./bindings/AskEnvelope.ts";
+import type { Bookmark } from "./bindings/Bookmark.ts";
+import type { Conversation } from "./bindings/Conversation.ts";
+import type { ConversationSummary } from "./bindings/ConversationSummary.ts";
+import type { OllamaStatus } from "./bindings/OllamaStatus.ts";
+import type { Recommendation } from "./bindings/Recommendation.ts";
+import type { SearchHit } from "./bindings/SearchHit.ts";
+import type { SearchResult } from "./bindings/SearchResult.ts";
+import type { SearchScope } from "./bindings/SearchScope.ts";
 
 export type { AppStatus, Current, JobProgress, Settings, Source, Theme, VaultChanged, VaultInfo };
 export type { Priority, StatsQuery, Task, TaskGroups, TaskImportReport, TaskInput, TaskPatch, TaskQuery, TaskStats };
@@ -73,15 +82,11 @@ export type {
 export type NotesFilter = NoteFilter;
 export type NoteCreateInput = NoteInput;
 export type Template = TemplateInfo;
-export type {
-  AskEvent,
-  ConversationSummary,
-  NoteId,
-  OllamaStatus,
-  Recommendation,
-  SearchHit,
-  SearchScope,
-} from "./shapes.ts";
+export type { AskEnvelope, Bookmark, Conversation, ConversationSummary, OllamaStatus, Recommendation, SearchHit, SearchResult, SearchScope };
+/** `ask://event` payloads. */
+export type AskEvent = AskEnvelope;
+/** `"<vaultId>:<vault-relative path>"`, how the UI names a note. */
+export type NoteId = string;
 
 // ---- errors ------------------------------------------------------------------------------
 
@@ -173,15 +178,16 @@ interface Commands {
   tasks_stats: [{ query: StatsQuery }, TaskStats];
   tasks_import_taskwarrior: [{ dryRun: boolean }, TaskImportReport];
   // search
-  search: [{ q: string; scope: S.SearchScope }, S.SearchHit[]];
-  ask_start: [{ question: string; scope: S.SearchScope; conversation?: string }, string];
-  ask_cancel: [{ id: string }, null];
-  conversations_list: [None, S.ConversationSummary[]];
+  search: [{ q: string; scope?: SearchScope }, SearchResult];
+  ask_start: [{ question: string; scope?: SearchScope; conversation?: string }, string];
+  ask_cancel: [{ id: string }, boolean];
+  conversations_list: [None, ConversationSummary[]];
+  conversation_get: [{ id: string }, Conversation];
   // ai
-  ollama_status: [None, S.OllamaStatus];
-  ollama_recommend: [None, S.Recommendation];
+  ollama_status: [None, OllamaStatus];
+  ollama_recommend: [None, Recommendation];
   // bookmarks
-  bookmark_add: [{ url: string; note?: string }, unknown];
+  bookmark_add: [{ url: string; note?: string }, Bookmark];
   // ---- streams: add the commands your views call below ----
   // widgets (W)
   widgets_catalog: [None, WidgetCatalogEntry[]];
@@ -296,8 +302,8 @@ export const api = {
   tasksStats: (query: Partial<StatsQuery> = {}) => call("tasks_stats", { query: { days: null, project: null, tag: null, vaults: [], today: null, ...query } }),
   tasksImportTaskwarrior: (dryRun: boolean) => call("tasks_import_taskwarrior", { dryRun }),
 
-  search: (q: string, scope: S.SearchScope = {}) => call("search", { q, scope }),
-  askStart: (question: string, scope: S.SearchScope = {}, conversation?: string) => call("ask_start", { question, scope, conversation }),
+  search: (q: string, scope?: SearchScope) => call("search", { q, scope }),
+  askStart: (question: string, scope?: SearchScope, conversation?: string) => call("ask_start", { question, scope, conversation }),
   askCancel: (id: string) => call("ask_cancel", { id }),
   conversations: () => call("conversations_list", none),
 
@@ -311,7 +317,7 @@ export const api = {
 
 interface Events {
   "vault://changed": VaultChanged;
-  "ask://event": S.AskEvent;
+  "ask://event": AskEnvelope;
   "jobs://progress": JobProgress;
   "capture://open": null;
 }
