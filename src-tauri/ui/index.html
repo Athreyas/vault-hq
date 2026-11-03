@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vault HQ</title>
+    <style>
+      html, body { height: 100%; margin: 0; background: #121212; color: #a8a49b; font: 14px "JetBrains Mono", ui-monospace, Menlo, monospace; }
+      body { display: grid; place-items: center; }
+      p { margin: 0.4em 0; text-align: center; }
+      b { color: #e39a2d; }
+      code { color: #e8e4da; }
+    </style>
+  </head>
+  <body>
+    <div>
+      <p><b>▌hq</b> starting the vault server…</p>
+      <p id="hint"></p>
+    </div>
+    <script>
+      // shown while the app waits for http://127.0.0.1:4320; the app replaces this page once it answers
+      setTimeout(() => {
+        document.getElementById("hint").innerHTML =
+          "Still waiting. If it never starts, run <code>scripts/service.sh install</code> in the vault-hq folder.";
+      }, 15000);
+    </script>
+  </body>
+</html>

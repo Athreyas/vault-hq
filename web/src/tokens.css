@@ -1,0 +1,70 @@
+/* Vault HQ design tokens: the only place colours, type and spacing are defined.
+   A terminal UI: graphite-black ground, paper ink, saffron accent. Dark always, unless
+   the user picks the light theme (root data-theme="light", kept in this browser).
+   Typography encodes the vault's zones: the user's own words in IBM Plex Mono,
+   machine output in JetBrains Mono. Both are monospace; they differ in shape and tone. */
+
+:root {
+  --font-machine: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-human: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* type scale: terminal-dense, 1.2 steps from 13px */
+  --t-xs: 0.77rem;
+  --t-sm: 0.85rem;
+  --t-md: 0.92rem;
+  --t-lg: 1.1rem;
+  --t-xl: 1.3rem;
+  --t-clock: 1rem;
+
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --space-7: 32px;
+
+  --radius: 0;
+  --line-w: 1px;
+  --ease: linear;
+}
+
+/* dark: the default, a neutral graphite black with warm paper ink and a saffron accent */
+:root {
+  color-scheme: dark;
+  --bg: #121212;
+  --bg-raised: #1a1a1a;
+  --bg-sunk: #0b0b0b;
+  --ink: #e8e4da;
+  --ink-muted: #a8a49b;
+  --ink-faint: #7a7770;
+  --line: #2b2b2b;
+  --line-strong: #474644;
+  --accent: #e39a2d;
+  --accent-ink: #14110a;
+  --link: #9db8c9;
+  --good: #8db394;
+  --attention: #e8836a;
+  --on-attention: #14110a;
+  --scrim: rgba(0, 0, 0, 0.7);
+}
+
+/* light: only when chosen (palette: "theme"), never by time of day */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #efeadd;
+  --bg-raised: #f6f2e8;
+  --bg-sunk: #e4ddcb;
+  --ink: #1d1d1b;
+  --ink-muted: #4b4a45;
+  --ink-faint: #696760;
+  --line: #cfc7b0;
+  --line-strong: #a79f87;
+  --accent: #a8620f;
+  --accent-ink: #fff8ec;
+  --link: #2f5873;
+  --good: #3b724d;
+  --attention: #a3402a;
+  --on-attention: #fff8ec;
+  --scrim: rgba(29, 29, 27, 0.45);
+}

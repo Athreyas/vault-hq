@@ -1,0 +1,33 @@
+{
+  "name": "vault-hq",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local front end for an Obsidian-style markdown vault: what needs you, your days, tasks, notes you can read and edit, and Ask on local models.",
+  "type": "module",
+  "scripts": {
+    "dev:server": "node --watch server/index.ts",
+    "dev:web": "vite --config web/vite.config.ts",
+    "build": "vite build --config web/vite.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "verify": "npm run typecheck && npm run build",
+    "start": "npm run build && node server/index.ts",
+    "demo": "node demo/make-demo.mjs && npm run build && VAULT_PATH=/Users/Shared/hq-demo/demo-vault VAULT_STATE=/Users/Shared/hq-demo/state TASK_BIN=/Users/Shared/hq-demo/task HQ_PORT=4330 HQ_CORE_ONLY=1 node server/index.ts"
+  },
+  "engines": {
+    "node": ">=25"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.3",
+    "@types/node": "^26.6.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5"
+  }
+}
