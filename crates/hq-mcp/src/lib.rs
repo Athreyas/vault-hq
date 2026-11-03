@@ -27,13 +27,27 @@ pub fn serve(backend: Arc<dyn Backend>, input: impl BufRead, output: Box<dyn Wri
     Server::new(backend, output).run(input);
 }
 
-/// Which vaults `vault-hq mcp` serves. In order of precedence:
-/// - `--vault <folder>` arguments after `mcp` (repeatable; the first is primary);
-/// - `VAULT_HQ_VAULT=<folder>` (one folder; for trying the server without the app);
-/// - the app's settings: `VAULT_HQ_SUPPORT_DIR`, else
-///   `~/Library/Application Support/local.vaulthq.desktop/settings.json` (SPEC 13).
-///
-/// The settings' blocklist applies to folders named either way.
+/// `~/Library/<sub>/local.vaulthq.desktop`, the folders the app's Tauri identifier gets.
+fn app_dir(env: &str, sub: &str) -> Result<PathBuf, String> {
+    if let Some(d) = std::env::var_os(env).filter(|p| !p.is_empty()) {
+        return Ok(PathBuf::from(d));
+    }
+    std::env::var_os("HOME")
+        .map(|h| {
+            Path::new(&h)
+                .join("Library")
+                .join(sub)
+                .join("local.vaulthq.desktop")
+        })
+        .ok_or_else(|| "HOME is not set".to_string())
+}
+
+/// What `vault-hq mcp` serves, on the app's own state (`hq_core::hq::Hq`):
+/// - settings from `VAULT_HQ_SUPPORT_DIR`, else `~/Library/Application Support/local.vaulthq.desktop`;
+/// - caches (search vectors) in `VAULT_HQ_CACHE_DIR`, else `~/Library/Caches/local.vaulthq.desktop`;
+/// - the vaults in those settings, unless `--vault <folder>` (repeatable; the first is
+///   primary) or `VAULT_HQ_VAULT=<folder>` names them. Then the settings' blocklist and
+///   model settings still apply, and the settings file is left alone.
 pub fn backend_from_env(args: &[String]) -> Result<CoreBackend, String> {
     let mut paths: Vec<PathBuf> = Vec::new();
     let mut it = args.iter();
@@ -55,26 +69,16 @@ pub fn backend_from_env(args: &[String]) -> Result<CoreBackend, String> {
             paths.push(PathBuf::from(p));
         }
     }
-    let support = match std::env::var_os("VAULT_HQ_SUPPORT_DIR").filter(|p| !p.is_empty()) {
-        Some(d) => PathBuf::from(d),
-        None => std::env::var_os("HOME")
-            .map(|h| Path::new(&h).join("Library/Application Support/local.vaulthq.desktop"))
-            .ok_or("HOME is not set")?,
-    };
+    let support = app_dir("VAULT_HQ_SUPPORT_DIR", "Application Support")?;
+    let cache = app_dir("VAULT_HQ_CACHE_DIR", "Caches")?;
+    if paths.is_empty() {
+        return Ok(CoreBackend::open(&support, &cache));
+    }
+    // without readable settings there is no blocklist to honour: refuse rather than guess
     let settings = hq_core::settings::Store::new(&support)
         .load()
         .map_err(|e| e.to_string())?;
-    if paths.is_empty() {
-        return Ok(CoreBackend::from_settings(&settings));
-    }
-    let mut vaults = Vec::new();
-    for p in paths {
-        if let Some(why) = hq_core::settings::blocked(&settings, &p) {
-            return Err(why);
-        }
-        vaults.push(hq_core::vault::Vault::open(&p).map_err(|e| e.to_string())?);
-    }
-    Ok(CoreBackend::new(vaults, None))
+    CoreBackend::with_vaults(&paths, settings, &cache).map_err(|e| e.to_string())
 }
 
 /// `vault-hq mcp [--vault <folder>]…`: serve this process's stdin/stdout until the client
@@ -86,17 +90,23 @@ pub fn serve_stdio() -> Result<(), String> {
         .skip(1)
         .collect();
     let backend = backend_from_env(&args)?;
+    let vaults = backend.hq().vaults();
     eprintln!(
         "vault-hq mcp {}: serving {} vault(s): {}",
         env!("CARGO_PKG_VERSION"),
-        backend.vaults().len(),
-        backend
-            .vaults()
+        vaults.len(),
+        vaults
             .iter()
             .map(|v| v.name.as_str())
             .collect::<Vec<_>>()
             .join(", ")
     );
+    for p in backend.hq().registry().problems() {
+        eprintln!("vault-hq mcp: skipped a vault: {p}");
+    }
+    if let Some(why) = backend.hq().broken() {
+        eprintln!("vault-hq mcp: {why}");
+    }
     let stdin = std::io::stdin();
     serve(Arc::new(backend), stdin.lock(), Box::new(std::io::stdout()));
     Ok(())
