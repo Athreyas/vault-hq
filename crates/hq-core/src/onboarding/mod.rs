@@ -15,7 +15,7 @@ pub mod scaffold;
 use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
-use crate::settings::{OnboardingState, Settings, Store, VaultEntry};
+use crate::settings::{OnboardingState, Settings, VaultEntry};
 use crate::types::LocationSuggestion;
 use crate::vault::Vault;
 
@@ -30,31 +30,30 @@ pub const STEPS: [&str; 7] = [
     "done",
 ];
 
-pub fn state(store: &Store) -> Result<OnboardingState> {
-    let s = store.load()?;
-    let mut st = s.onboarding;
+/// The wizard's state, with an empty step read as the first one.
+pub fn state(settings: &Settings) -> OnboardingState {
+    let mut st = settings.onboarding.clone();
     if st.step.is_empty() {
         st.step = STEPS[0].into();
     }
-    Ok(st)
+    st
 }
 
 /// Move the wizard to `step`. Reaching "done" marks onboarding finished; re-running it
-/// later from Settings goes back to an earlier step without clearing `done`.
-pub fn set_step(store: &Store, step: &str) -> Result<OnboardingState> {
+/// later from Settings goes back to an earlier step without clearing `done`. The caller
+/// saves (the shell owns settings.json).
+pub fn set_step(settings: &mut Settings, step: &str) -> Result<()> {
     if !STEPS.contains(&step) {
         return Err(Error::Invalid(format!(
             "\"{step}\" is not an onboarding step (one of {})",
             STEPS.join(", ")
         )));
     }
-    let mut s = store.load()?;
-    s.onboarding.step = step.into();
+    settings.onboarding.step = step.into();
     if step == "done" {
-        s.onboarding.done = true;
+        settings.onboarding.done = true;
     }
-    store.save(&s)?;
-    Ok(s.onboarding)
+    Ok(())
 }
 
 /// Add a vault to settings (once, by id); the first vault, or `primary`, becomes primary.
@@ -121,15 +120,17 @@ mod tests {
 
     #[test]
     fn steps_round_trip() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Store::new(dir.path());
-        assert_eq!(state(&store).unwrap().step, "welcome");
-        assert!(!set_step(&store, "agents").unwrap().done);
-        assert!(set_step(&store, "nope").is_err());
-        assert!(set_step(&store, "done").unwrap().done);
-        let again = set_step(&store, "brain").unwrap();
-        assert!(again.done, "re-running keeps onboarding finished");
-        assert_eq!(state(&store).unwrap().step, "brain");
+        let mut s = Settings::default();
+        assert_eq!(state(&s).step, "welcome");
+        set_step(&mut s, "agents").unwrap();
+        assert!(!s.onboarding.done);
+        assert!(set_step(&mut s, "nope").is_err());
+        assert_eq!(state(&s).step, "agents");
+        set_step(&mut s, "done").unwrap();
+        assert!(s.onboarding.done);
+        set_step(&mut s, "brain").unwrap();
+        assert!(s.onboarding.done, "re-running keeps onboarding finished");
+        assert_eq!(state(&s).step, "brain");
     }
 
     #[test]

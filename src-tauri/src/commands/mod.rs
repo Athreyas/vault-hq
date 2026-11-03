@@ -9,6 +9,7 @@ use tauri::{generate_handler, Runtime};
 
 pub mod app;
 // ---- streams: add `pub mod <area>;` below (A core, B tasks, C search, E, F, W) ----
+pub mod onboarding;
 pub mod search;
 
 mod names;
@@ -35,6 +36,18 @@ macro_rules! hq_commands {
             search::conversation_get,
             search::ollama_status,
             search::ollama_recommend,
+            // E onboarding
+            onboarding::onboarding_state,
+            onboarding::onboarding_set_step,
+            onboarding::onboarding_locations,
+            onboarding::onboarding_scaffold,
+            onboarding::agents_catalog,
+            onboarding::agent_prompt,
+            onboarding::agent_config_preview,
+            onboarding::agent_config_apply,
+            onboarding::import_analyze,
+            onboarding::import_apply,
+            onboarding::import_undo,
         ]
     };
 }

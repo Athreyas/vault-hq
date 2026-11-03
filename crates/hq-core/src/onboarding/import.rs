@@ -2,6 +2,7 @@
 //! fit the HQ format yet, and a plan of changes the user ticks. Reads only; writes nothing
 //! (not even the marker), so analysing a vault the user then walks away from leaves no trace.
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
@@ -10,6 +11,7 @@ use walkdir::WalkDir;
 use super::agents::FOLDERS;
 use crate::error::{Error, Result};
 use crate::frontmatter;
+use crate::ollama::{CancelToken, Chat, ChatMessage};
 use crate::types::{BrokenLink, ImportAnalysis, ImportPlan, KindCount, PlanAction, PlanItem, Prop};
 use crate::util;
 use crate::vault::{scan, Note, Vault};
@@ -22,6 +24,9 @@ const REQUIRED: [&str; 5] = ["title", "type", "created", "updated", "author"];
 const MAX_BROKEN: usize = 300;
 /// Untagged notes sent to the suggester, at most: a model call per note adds up.
 const MAX_SUGGEST: usize = 200;
+/// Of those, at most this many go to a model; the rest get the heuristic, so analysing a
+/// big vault stays a matter of seconds, not minutes of generation.
+const MAX_MODEL_SUGGEST: usize = 40;
 
 /// Root files that belong at the root.
 const ROOT_OK: &[&str] = &["AGENTS.md", "CLAUDE.md", "README.md"];
@@ -199,11 +204,12 @@ pub fn analyze(root: &Path, suggest: Option<TagSuggester>) -> Result<ImportAnaly
     }
 
     let untagged = untagged_notes.len() as u32;
-    for n in untagged_notes.iter().take(MAX_SUGGEST) {
-        let text = excerpt(n);
+    for (i, n) in untagged_notes.iter().take(MAX_SUGGEST).enumerate() {
         let tags = match suggest {
-            Some(f) => f(&text).unwrap_or_else(|_| heuristic_tags(n)),
-            None => heuristic_tags(n),
+            Some(f) if i < MAX_MODEL_SUGGEST => {
+                f(&excerpt(n)).unwrap_or_else(|_| heuristic_tags(n))
+            }
+            _ => heuristic_tags(n),
         };
         let tags: Vec<String> = clean_tags(tags);
         if tags.is_empty() {
@@ -431,6 +437,66 @@ fn clean_tags(tags: Vec<String>) -> Vec<String> {
 fn excerpt(n: &Note) -> String {
     let body: String = n.body.chars().take(2000).collect();
     format!("{}\n\n{}", n.title(), body)
+}
+
+/// Tag suggestions from the user's local chat model (stream C's client). After the first
+/// failure it stops calling, so a model server that went away costs one timeout, not one
+/// per note; `analyze` then falls back to the heuristic.
+pub struct ModelTagger<'a> {
+    chat: &'a dyn Chat,
+    down: Cell<bool>,
+}
+
+impl<'a> ModelTagger<'a> {
+    pub fn new(chat: &'a dyn Chat) -> Self {
+        ModelTagger {
+            chat,
+            down: Cell::new(false),
+        }
+    }
+
+    pub fn suggest(&self, text: &str) -> Result<Vec<String>> {
+        if self.down.get() {
+            return Err(Error::Unavailable(
+                "the model server stopped answering".into(),
+            ));
+        }
+        let messages = [
+            ChatMessage::new(
+                "system",
+                "You tag notes in a personal knowledge base. Reply with 1 to 4 short lowercase tags, comma separated, nothing else. Use dashes instead of spaces.",
+            ),
+            ChatMessage::new("user", text),
+        ];
+        let mut out = String::new();
+        match self
+            .chat
+            .chat_stream(&messages, &CancelToken::new(), &mut |t| out.push_str(t))
+        {
+            Ok(_) => Ok(parse_tag_reply(&out)),
+            Err(e) => {
+                self.down.set(true);
+                Err(e)
+            }
+        }
+    }
+}
+
+/// `"#garden, Outdoor Work\n- tools"` → `["garden", "outdoor-work", "tools"]`.
+pub fn parse_tag_reply(reply: &str) -> Vec<String> {
+    let line_tags: Vec<String> = reply
+        .split([',', '\n', ';'])
+        .map(|t| {
+            t.trim()
+                .trim_start_matches(['-', '*', '#', ' '])
+                .trim_matches(['"', '\'', '`', '.'])
+                .trim()
+                .to_lowercase()
+                .replace(' ', "-")
+        })
+        .filter(|t| !t.is_empty() && t.len() <= 30)
+        .collect();
+    clean_tags(line_tags)
 }
 
 /// `[[target]]` and relative markdown links that resolve to nothing in the vault.
@@ -687,6 +753,64 @@ pub(crate) mod tests {
         }
         let down = |_: &str| -> Result<Vec<String>> { Err(Error::Unavailable("no model".into())) };
         let a = analyze(dir.path(), Some(&down)).unwrap();
+        assert!(a
+            .plan
+            .items
+            .iter()
+            .any(|i| i.id == "tag:Notes/Cooking/Bread.md"));
+    }
+
+    struct FakeChat {
+        reply: Option<&'static str>,
+        calls: Cell<u32>,
+    }
+
+    impl Chat for FakeChat {
+        fn model(&self) -> &str {
+            "fake"
+        }
+        fn chat_stream(
+            &self,
+            _messages: &[ChatMessage],
+            _cancel: &CancelToken,
+            on_token: &mut dyn FnMut(&str),
+        ) -> Result<crate::ollama::Streamed> {
+            self.calls.set(self.calls.get() + 1);
+            match self.reply {
+                Some(r) => {
+                    on_token(r);
+                    Ok(crate::ollama::Streamed {
+                        text: r.into(),
+                        stopped: false,
+                    })
+                }
+                None => Err(Error::Unavailable("down".into())),
+            }
+        }
+    }
+
+    #[test]
+    fn model_tagger_parses_and_gives_up_once_down() {
+        let up = FakeChat {
+            reply: Some("#Garden, outdoor work\n- Tools."),
+            calls: Cell::new(0),
+        };
+        let t = ModelTagger::new(&up);
+        assert_eq!(
+            t.suggest("x").unwrap(),
+            vec!["garden", "outdoor-work", "tools"]
+        );
+
+        let down = FakeChat {
+            reply: None,
+            calls: Cell::new(0),
+        };
+        let t = ModelTagger::new(&down);
+        let dir = tempfile::tempdir().unwrap();
+        messy(dir.path());
+        let f = |text: &str| t.suggest(text);
+        let a = analyze(dir.path(), Some(&f)).unwrap();
+        assert_eq!(down.calls.get(), 1, "a model that is down is asked once");
         assert!(a
             .plan
             .items
