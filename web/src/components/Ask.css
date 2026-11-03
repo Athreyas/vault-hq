@@ -1,0 +1,302 @@
+/* The Ask tab: conversation history on the left, one long chat on the right, the prompt
+   pinned under the thread. Colours, type and spacing come only from tokens.css. */
+
+.ask-chat {
+  display: grid;
+  grid-template-columns: minmax(14rem, 18rem) minmax(0, 1fr);
+  gap: var(--space-6);
+  min-height: 100%;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .ask-chat {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- history ---- */
+
+.ask-history {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: var(--space-3);
+  max-height: 100%;
+  overflow-y: auto;
+  padding-right: var(--space-4);
+  border-right: var(--line-w) solid var(--line);
+}
+
+.ask-history-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.ask-history-note {
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+}
+
+.ask-history ol {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ask-history-item {
+  display: grid;
+  width: 100%;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-left: 2px solid transparent;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ask-history-item:hover {
+  background: var(--bg-raised);
+}
+
+.ask-history-item.is-current {
+  border-left-color: var(--accent);
+  background: var(--bg-raised);
+}
+
+.ask-history-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-human);
+  font-size: var(--t-sm);
+}
+
+.ask-history-meta {
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+}
+
+/* ---- chat ---- */
+
+.ask-main {
+  display: grid;
+  gap: var(--space-5);
+  align-content: start;
+  min-width: 0;
+}
+
+.ask-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-5);
+}
+
+.ask-head h1 {
+  color: var(--accent);
+}
+
+.ask-title {
+  font-family: var(--font-human);
+  color: var(--ink-muted);
+}
+
+.ask-ollama {
+  margin-left: auto;
+  font-size: var(--t-sm);
+  color: var(--ink-faint);
+}
+
+.ask-ollama.is-ok::before {
+  content: "● ";
+  color: var(--good);
+}
+
+.ask-ollama.is-error {
+  color: var(--attention);
+}
+
+.ask-empty {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ask-suggest {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ask-thread {
+  display: grid;
+  gap: var(--space-6);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ask-turn {
+  display: grid;
+  gap: var(--space-3);
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--line-strong);
+}
+
+.ask-turn.is-streaming {
+  border-left-color: var(--accent);
+}
+
+.ask-q {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+}
+
+.ask-q p {
+  flex: 1 1 24ch;
+  font-family: var(--font-human);
+  font-weight: 500;
+  color: var(--accent);
+  white-space: pre-wrap;
+}
+
+.ask-meta {
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+}
+
+.ask-a {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 90ch;
+  line-height: 1.65;
+  font-family: var(--font-machine);
+}
+
+.ask-a ul {
+  margin: 0;
+  padding-left: 1.4em;
+}
+
+.ask-stream {
+  white-space: pre-wrap;
+}
+
+/* a block cursor while the model is still writing */
+.ask-turn.is-streaming .ask-stream::after {
+  content: "▌";
+  color: var(--accent);
+  animation: ask-blink 1s steps(1) infinite;
+}
+
+@keyframes ask-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ask-turn.is-streaming .ask-stream::after {
+    animation: none;
+  }
+}
+
+.ask-wait {
+  color: var(--ink-muted);
+}
+
+.ask-sources {
+  padding-top: var(--space-3);
+  border-top: var(--line-w) dashed var(--line);
+}
+
+.ask-sources summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.ask-sources summary::before {
+  content: "▸ ";
+  color: var(--ink-faint);
+}
+
+.ask-sources[open] summary::before {
+  content: "▾ ";
+}
+
+.ask-sources ol {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ask-sources li p {
+  margin-top: var(--space-1);
+  max-width: 100ch;
+  font-size: var(--t-sm);
+  color: var(--ink-muted);
+}
+
+.ask-badge,
+.ask-src-date,
+.ask-score {
+  margin-left: var(--space-3);
+  font-size: var(--t-xs);
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-badge {
+  padding: 0 0.4em;
+  border: var(--line-w) solid var(--line-strong);
+}
+
+.ask-cited {
+  font-size: var(--t-sm);
+}
+
+/* ---- prompt ---- */
+
+.ask-compose {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  gap: var(--space-3);
+  padding-block: var(--space-4);
+  background: var(--bg);
+  border-top: var(--line-w) solid var(--line);
+}
+
+.ask-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--t-sm);
+}
+
+.ask-scope-faint {
+  color: var(--ink-faint);
+}
+
+.ask-scope-vaults {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.ask-scope-vaults label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}

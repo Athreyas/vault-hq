@@ -2,15 +2,16 @@
 // them to the Rust commands' snake_case parameters.
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Bookmark } from "../bindings/Bookmark";
-import type { BookmarkFilter } from "../bindings/BookmarkFilter";
-import type { BookmarkImportReport } from "../bindings/BookmarkImportReport";
-import type { BookmarkPage } from "../bindings/BookmarkPage";
-import type { BrowserSource } from "../bindings/BrowserSource";
-import type { EnrichReport } from "../bindings/EnrichReport";
-import type { HqError } from "../bindings/HqError";
-import type { Memory } from "../bindings/Memory";
-import type { Platform } from "../bindings/Platform";
+import type { Bookmark } from "../bindings/Bookmark.ts";
+import type { BookmarkFilter } from "../bindings/BookmarkFilter.ts";
+import type { BookmarkImportReport } from "../bindings/BookmarkImportReport.ts";
+import type { BookmarkPage } from "../bindings/BookmarkPage.ts";
+import type { BrowserSource } from "../bindings/BrowserSource.ts";
+import type { EnrichReport } from "../bindings/EnrichReport.ts";
+import type { HqError } from "../bindings/HqError.ts";
+import type { JobProgress } from "../bindings/JobProgress.ts";
+import type { Memory } from "../bindings/Memory.ts";
+import type { Platform } from "../bindings/Platform.ts";
 
 export type { Bookmark, BookmarkFilter, BookmarkImportReport, BookmarkPage, BrowserSource, EnrichReport, Memory, Platform };
 
@@ -25,17 +26,16 @@ export const bookmarkAdd = (url: string, note?: string) => invoke<Bookmark>("boo
 export const bookmarksEnrich = (ids?: string[]) => invoke<EnrichReport>("bookmarks_enrich", { ids: ids ?? null });
 export const bookmarksEnrichCancel = () => invoke<void>("bookmarks_enrich_cancel");
 export const memories = (date: string, salt: number) => invoke<Memory[]>("memories", { date, salt });
+/** The opt-in for enrichment (`Settings.enrichBookmarks`), through the shell's settings. */
+export const enrichEnabled = () =>
+  invoke<{ enrichBookmarks: boolean }>("settings_get").then((s) => s.enrichBookmarks);
+export const setEnrichEnabled = (on: boolean) => invoke("settings_update", { patch: { enrichBookmarks: on } });
 export const memoryDismiss = (id: string) => invoke<void>("memory_dismiss", { id });
 
 /** An `html:` source id for an exported bookmarks file the user picked. */
 export const htmlSource = (path: string) => `html:${path}`;
 
-export interface JobProgress {
-  job: string;
-  done: number;
-  total: number;
-  message: string;
-}
+export type { JobProgress };
 
 /** `jobs://progress` for one job (`bookmarks-import`, `bookmarks-enrich`). */
 export function onProgress(job: string, cb: (p: JobProgress) => void): Promise<UnlistenFn> {

@@ -2157,3 +2157,180 @@ textarea::placeholder {
     transition: none !important;
   }
 }
+
+/* ---- 2.0 shell: home ask bar, create menu and dialog, quick capture --------------------- */
+
+/* The ask bar rests at a reading width and opens to the full row while it has focus,
+   then settles back. Only width and padding move; nothing else on the page shifts. */
+.home-ask {
+  width: min(var(--ask-rest), 100%);
+  transition:
+    width var(--dur-settle) var(--ease-settle),
+    padding var(--dur-settle) var(--ease-settle),
+    border-color var(--dur-settle) var(--ease-settle);
+}
+
+.home-ask:focus-within {
+  width: 100%;
+  padding-block: var(--space-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-ask {
+    transition: none;
+  }
+}
+
+.prompt textarea {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-human);
+  resize: none;
+  outline: none;
+}
+
+.create-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.create-button {
+  padding-inline: var(--space-3);
+  font-weight: 700;
+}
+
+.create-list {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 30;
+  min-width: 15rem;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  border: var(--line-w) solid var(--accent);
+  background: var(--bg-raised);
+}
+
+.create-list button {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.create-list button:hover,
+.create-list button:focus-visible {
+  background: var(--accent);
+  color: var(--accent-ink);
+  outline: none;
+}
+
+.create-list small {
+  color: inherit;
+  opacity: 0.7;
+  font-size: var(--t-xs);
+  align-self: center;
+}
+
+.create-kinds {
+  margin: var(--space-3) var(--space-4) 0;
+}
+
+.create-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+
+.create-fields .set-field {
+  flex: 1 1 12rem;
+}
+
+.create-fields select,
+.create-fields input {
+  padding: var(--space-2) var(--space-3);
+  border: var(--line-w) solid var(--line-strong);
+  background: var(--bg-sunk);
+}
+
+.create-error {
+  padding: 0 var(--space-4) var(--space-3);
+}
+
+.log-who {
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+/* settings: vault rows, blocked names, model pulls */
+.set-vault-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: var(--line-w) solid var(--line-strong);
+  background: var(--bg-sunk);
+  grid-column: 1 / -1;
+}
+
+.set-vault-row.is-current {
+  border-color: var(--good);
+}
+
+.set-vault-row > div:first-child {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.set-vault-row small {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}
+
+.set-chips,
+.set-pulls,
+.set-problems {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.set-pulls,
+.set-problems {
+  display: grid;
+}
+
+/* the quick-capture window: the whole page is the box */
+.capture-root {
+  height: 100%;
+}
+
+.capture {
+  display: grid;
+  align-content: center;
+  gap: var(--space-3);
+  height: 100%;
+  padding: var(--space-4);
+  border: var(--line-w) solid var(--accent);
+  background: var(--bg);
+}
+
+.capture-foot {
+  color: var(--ink-faint);
+  font-size: var(--t-xs);
+}

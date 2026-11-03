@@ -1,69 +1,47 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { get } from "../api.ts";
+import { api, HqError, type Source } from "../api.ts";
+import { lineDiff } from "../lib/text.ts";
 
-// Editing a whole note, properties included. The server refuses a save if the file changed
-// since the editor read it (another agent, a sync, Obsidian); then the user decides.
-// Unsaved text is kept in this browser per note, so leaving the view never loses it.
+// Editing a whole note, properties included. The core refuses a save if the file changed
+// since the editor read it (another agent, a sync, another editor); then the user decides.
+// Unsaved text is kept in this window per note, so leaving the view never loses it.
 
-interface Source {
-  rel: string;
-  text: string;
-  hash: string;
-}
+const draftKey = (id: string) => `hq.draft.${id}`;
 
-const draftKey = (rel: string) => `hq.draft.${rel}`;
-
-function loadDraft(rel: string): { base: string; text: string } | null {
+function loadDraft(id: string): { base: string; text: string } | null {
   try {
-    const raw = localStorage.getItem(draftKey(rel));
+    const raw = localStorage.getItem(draftKey(id));
     return raw ? (JSON.parse(raw) as { base: string; text: string }) : null;
   } catch {
     return null;
   }
 }
 
-function storeDraft(rel: string, base: string, text: string | null): void {
+function storeDraft(id: string, base: string, text: string | null): void {
   try {
-    if (text === null) localStorage.removeItem(draftKey(rel));
-    else localStorage.setItem(draftKey(rel), JSON.stringify({ base, text }));
+    if (text === null) localStorage.removeItem(draftKey(id));
+    else localStorage.setItem(draftKey(id), JSON.stringify({ base, text }));
   } catch {
-    /* private mode: drafts last for this page only */
+    /* storage refused: drafts last for this page only */
   }
 }
 
-async function postSave(rel: string, text: string, base: string): Promise<{ ok: true; src: Source } | { ok: false; current: Source | null; error: string }> {
-  const r = await fetch("/api/note/save", {
-    method: "POST",
-    headers: { "content-type": "application/json", "X-HQ": "1" },
-    body: JSON.stringify({ rel, text, base }),
-  });
-  const data = (await r.json()) as { text?: string; hash?: string; error?: string; current?: { text: string; hash: string } };
-  if (r.ok && data.text !== undefined && data.hash) return { ok: true, src: { rel, text: data.text, hash: data.hash } };
-  return { ok: false, current: data.current ? { rel, ...data.current } : null, error: data.error ?? `Save failed (${r.status})` };
-}
+type Saved = { ok: true; src: Source } | { ok: false; current: Source | null; error: string };
 
-/** Lines only in `a` (removed) and only in `b` (added), by longest common subsequence. */
-function lineDiff(a: string, b: string): { kind: " " | "-" | "+"; text: string }[] {
-  const x = a.split("\n");
-  const y = b.split("\n");
-  if (x.length * y.length > 4_000_000) return [{ kind: " ", text: "(too large to compare line by line)" }];
-  const dp = Array.from({ length: x.length + 1 }, () => new Uint32Array(y.length + 1));
-  for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) dp[i]![j] = x[i] === y[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
-  const out: { kind: " " | "-" | "+"; text: string }[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < x.length || j < y.length) {
-    if (i < x.length && j < y.length && x[i] === y[j]) out.push({ kind: " ", text: x[i++]! }), j++;
-    else if (j < y.length && (i === x.length || dp[i]![j + 1]! >= dp[i + 1]![j]!)) out.push({ kind: "+", text: y[j++]! });
-    else out.push({ kind: "-", text: x[i++]! });
+async function saveNote(id: string, text: string, base: string): Promise<Saved> {
+  try {
+    const r = await api.noteSave(id, text, base);
+    return { ok: true, src: { id: r.id ?? id, text, hash: r.hash } };
+  } catch (e) {
+    if (e instanceof HqError && e.kind === "Conflict" && e.current) return { ok: false, current: { id, ...e.current }, error: e.message };
+    return { ok: false, current: null, error: (e as Error).message };
   }
-  return out;
 }
 
 // Enter continues a list item or checkbox; Enter on an empty item ends the list.
 const ITEM = /^(\s*)([-*+]|\d+[.)])(\s+)(\[[ xX\-/>]\]\s+)?/;
 
-export default function Editor({ rel, onClose, notify }: { rel: string; onClose: (saved: boolean) => void; notify: (m: string, tone?: "ok" | "error") => void }) {
+export default function Editor({ id, onClose, notify }: { id: string; onClose: (saved: boolean) => void; notify: (m: string, tone?: "ok" | "error") => void }) {
   const [src, setSrc] = useState<Source | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -75,10 +53,10 @@ export default function Editor({ rel, onClose, notify }: { rel: string; onClose:
 
   useEffect(() => {
     let live = true;
-    get<Source>(`/api/note/source?rel=${encodeURIComponent(rel)}`).then(
+    api.noteSource(id).then(
       (s) => {
         if (!live) return;
-        const d = loadDraft(rel);
+        const d = loadDraft(id);
         setSrc(s);
         if (d && d.text !== s.text) {
           setText(d.text);
@@ -94,12 +72,12 @@ export default function Editor({ rel, onClose, notify }: { rel: string; onClose:
     return () => {
       live = false;
     };
-  }, [rel, notify]);
+  }, [id, notify]);
 
   // keep the draft while it differs from the file; drop it once saved or reverted
   useEffect(() => {
-    if (src) storeDraft(rel, src.hash, text === src.text ? null : text);
-  }, [rel, src, text]);
+    if (src) storeDraft(id, src.hash, text === src.text ? null : text);
+  }, [id, src, text]);
 
   useEffect(() => {
     const warn = (e: BeforeUnloadEvent) => {
@@ -113,7 +91,7 @@ export default function Editor({ rel, onClose, notify }: { rel: string; onClose:
     if (!src || !base || busy) return;
     setBusy(true);
     try {
-      const r = await postSave(rel, text, base);
+      const r = await saveNote(id, text, base);
       if (r.ok) {
         setSrc(r.src);
         setText(r.src.text);
@@ -230,7 +208,7 @@ export default function Editor({ rel, onClose, notify }: { rel: string; onClose:
       {conflict && (
         <div className="editor-conflict" role="alert">
           <p>
-            <b>This note changed on disk while you were editing.</b> Something else saved it (an agent, a sync, or Obsidian). Nothing was
+            <b>This note changed on disk while you were editing.</b> Something else saved it (an agent, a sync, or another editor). Nothing was
             overwritten. What changed on disk since you opened it:
           </p>
           <pre className="diff">

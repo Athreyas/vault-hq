@@ -1,56 +1,36 @@
-//! Bookmark commands (SPEC 8, 10). Thin: find the settings and the primary vault, call
-//! `hq_core::bookmarks`, hand back its types. Long work runs off the main thread and
-//! reports through `jobs://progress`.
+//! Bookmark commands (SPEC 8, 10). Thin: take the settings from the shell, find the primary
+//! vault, call `hq_core::bookmarks`, hand back its types. Long work runs off the main
+//! thread and reports through `jobs://progress`. Every settings change (a browser's yes or
+//! no, the memories state) goes through `Shell::update_settings`, so it is saved under
+//! the shell's lock and never races another command's write.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
 
 use hq_core::bookmarks::{self, enrich, store};
+use hq_core::ollama::{CancelToken, Chat, ChatMessage, Models};
 use hq_core::settings::{self, Settings};
 use hq_core::types::{
-    Bookmark, BookmarkFilter, BookmarkImportReport, BookmarkPage, BrowserSource, EnrichReport,
-    Memory,
+    split_note_id, Bookmark, BookmarkFilter, BookmarkImportReport, BookmarkPage, BrowserSource,
+    EnrichReport, JobProgress, Memory, VaultChanged,
 };
 use hq_core::vault::Vault;
 use hq_core::{Error, Result};
-use serde_json::json;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Runtime, State};
 
-/// Settings are read-modify-written here; one at a time so two clicks can't lose a choice.
-static SETTINGS: Mutex<()> = Mutex::new(());
+use crate::state::Shell;
+
 static ENRICH_CANCEL: AtomicBool = AtomicBool::new(false);
 
-fn store_of(app: &AppHandle) -> Result<settings::Store> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| Error::Internal(format!("no app support folder: {e}")))?;
-    Ok(settings::Store::new(&dir))
-}
-
-fn load_settings(app: &AppHandle) -> Result<Settings> {
-    store_of(app)?.load()
-}
-
-/// Change settings under the lock and save them.
-fn edit_settings<T>(app: &AppHandle, f: impl FnOnce(&mut Settings) -> T) -> Result<T> {
-    let _guard = SETTINGS.lock().unwrap_or_else(|p| p.into_inner());
-    let store = store_of(app)?;
-    let mut s = store.load()?;
-    let out = f(&mut s);
-    store.save(&s)?;
-    Ok(out)
-}
-
-fn home() -> Result<PathBuf> {
+pub fn home() -> Result<PathBuf> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .ok_or_else(|| Error::Unavailable("HOME is not set, so browsers can't be found.".into()))
 }
 
-/// Bookmarks land in the primary vault (captures go there too).
-fn primary_vault(s: &Settings) -> Result<Vault> {
+/// Bookmarks land in the primary vault (captures go there too). Blocked vaults are refused
+/// before anything inside them is read.
+pub fn primary_vault(s: &Settings) -> Result<Vault> {
     let entry = s
         .primary_vault
         .as_ref()
@@ -72,43 +52,64 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'sta
         .map_err(|e| Error::Internal(format!("background work stopped: {e}")))?
 }
 
-fn progress<'a>(app: &'a AppHandle, job: &'static str) -> impl FnMut(u32, u32, &str) + 'a {
+fn emit_progress<R: Runtime>(
+    app: &AppHandle<R>,
+    job: &str,
+    done: u32,
+    total: u32,
+    message: String,
+) {
+    let _ = app.emit(
+        "jobs://progress",
+        JobProgress {
+            job: job.into(),
+            done,
+            total,
+            message,
+        },
+    );
+}
+
+fn progress<'a, R: Runtime>(
+    app: &'a AppHandle<R>,
+    job: &'static str,
+) -> impl FnMut(u32, u32, &str) + 'a {
     move |done, total, message| {
-        let _ = app.emit(
-            "jobs://progress",
-            json!({ "job": job, "done": done, "total": total, "message": message }),
-        );
+        emit_progress(app, job, done, total, message.to_string());
     }
 }
 
 #[tauri::command]
-pub async fn browsers_detect(app: AppHandle) -> Result<Vec<BrowserSource>> {
-    let s = load_settings(&app)?;
+pub async fn browsers_detect(shell: State<'_, Shell>) -> Result<Vec<BrowserSource>> {
+    let s = shell.settings();
     blocking(move || Ok(bookmarks::detect(&home()?, &s))).await
 }
 
 /// Remember the user's yes or no for one browser profile.
 #[tauri::command]
-pub fn browser_allow(app: AppHandle, source_id: String, allowed: bool) -> Result<()> {
-    // refuse ids that don't name a browser profile before storing them
-    bookmarks::browsers::resolve(&home()?, &source_id)?;
+pub fn browser_allow(shell: State<'_, Shell>, source_id: String, allowed: bool) -> Result<()> {
     if source_id.starts_with("html:") {
         return Err(Error::Invalid(
             "An HTML file is imported directly; it has nothing to allow.".into(),
         ));
     }
-    edit_settings(&app, |s| {
+    // refuse ids that don't name a browser profile before storing them
+    bookmarks::browsers::resolve(&home()?, &source_id)?;
+    shell.update_settings(|s| {
         s.browsers.insert(source_id, allowed);
-    })
+        Ok(())
+    })?;
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn bookmarks_import(
-    app: AppHandle,
+pub async fn bookmarks_import<R: Runtime>(
+    app: AppHandle<R>,
+    shell: State<'_, Shell>,
     source_id: String,
     dry_run: bool,
 ) -> Result<BookmarkImportReport> {
-    let s = load_settings(&app)?;
+    let s = shell.settings();
     blocking(move || {
         let vault = primary_vault(&s)?;
         bookmarks::import(
@@ -125,11 +126,11 @@ pub async fn bookmarks_import(
 
 #[tauri::command]
 pub async fn bookmarks_query(
-    app: AppHandle,
+    shell: State<'_, Shell>,
     q: String,
     filter: Option<BookmarkFilter>,
 ) -> Result<BookmarkPage> {
-    let s = load_settings(&app)?;
+    let s = shell.settings();
     blocking(move || {
         let vault = primary_vault(&s)?;
         Ok(bookmarks::query(&vault, &q, &filter.unwrap_or_default()))
@@ -140,9 +141,13 @@ pub async fn bookmarks_query(
 /// Save a pasted link at once; its page title and description are fetched afterwards,
 /// for that URL only, and announced with `vault://changed`.
 #[tauri::command]
-pub fn bookmark_add(app: AppHandle, url: String, note: Option<String>) -> Result<Bookmark> {
-    let s = load_settings(&app)?;
-    let vault = primary_vault(&s)?;
+pub fn bookmark_add<R: Runtime>(
+    app: AppHandle<R>,
+    shell: State<'_, Shell>,
+    url: String,
+    note: Option<String>,
+) -> Result<Bookmark> {
+    let vault = primary_vault(&shell.settings())?;
     let (b, created) = store::add(&vault, &url, note.as_deref())?;
     if created {
         let id = b.id.clone();
@@ -152,42 +157,54 @@ pub fn bookmark_add(app: AppHandle, url: String, note: Option<String>) -> Result
                 return; // offline or the page refused: the note keeps the URL as its title
             };
             if let Ok(updated) = enrich::apply_page(&vault, &id, &meta) {
-                let rel = hq_core::types::split_note_id(&updated.id)
-                    .map(|(_, r)| r.to_string())
-                    .unwrap_or_default();
-                let _ = app.emit(
-                    "vault://changed",
-                    json!({ "vault": vault.id, "rels": [rel] }),
-                );
+                if let Some((_, rel)) = split_note_id(&updated.id) {
+                    crate::jobs::vault_changed(
+                        &app,
+                        VaultChanged {
+                            vault: vault.id.clone(),
+                            rels: vec![rel.to_string()],
+                        },
+                    );
+                }
             }
         });
     }
     Ok(b)
 }
 
-/// The chat model that writes tags and summaries. Stream C's client is wired in here by
-/// the integrator; until then enrichment reports the model as unavailable.
-fn chat_model(_s: &Settings) -> impl Fn(&str) -> Result<String> {
-    |_prompt: &str| {
-        Err(Error::Unavailable(
-            "The local model isn't connected yet. Set it up under Local AI.".into(),
-        ))
-    }
+/// One prompt in, the whole reply out, from the user's chat model (stream C's client,
+/// which refuses any server that isn't this Mac or the home network).
+fn ask_model(models: &Models, prompt: &str) -> Result<String> {
+    let messages = [ChatMessage::new("user", prompt)];
+    let done = models
+        .chat()
+        .chat_stream(&messages, &CancelToken::new(), &mut |_| {})?;
+    Ok(done.text)
 }
 
 #[tauri::command]
-pub async fn bookmarks_enrich(app: AppHandle, ids: Option<Vec<String>>) -> Result<EnrichReport> {
-    let s = load_settings(&app)?;
+pub async fn bookmarks_enrich<R: Runtime>(
+    app: AppHandle<R>,
+    shell: State<'_, Shell>,
+    ids: Option<Vec<String>>,
+) -> Result<EnrichReport> {
+    let s = shell.settings();
     if !s.enrich_bookmarks {
         return Err(Error::Denied(
             "Bookmark enrichment is off. Turn it on in Settings to let the local model tag and summarise bookmarks."
                 .into(),
         ));
     }
+    if s.ollama.chat_model.trim().is_empty() {
+        return Err(Error::Unavailable(
+            "Pick a chat model under Local AI first.".into(),
+        ));
+    }
     ENRICH_CANCEL.store(false, Ordering::Relaxed);
     blocking(move || {
         let vault = primary_vault(&s)?;
-        let model = chat_model(&s);
+        let models = Models::new(&s.ollama)?;
+        let model = |prompt: &str| ask_model(&models, prompt);
         enrich::enrich(
             &vault,
             ids.as_deref(),
@@ -206,17 +223,46 @@ pub fn bookmarks_enrich_cancel() {
 }
 
 /// Home's daily memories. `date` is the UI's local `YYYY-MM-DD`; `salt` 0 is today's pick,
-/// 1, 2, … are "show different ones".
+/// 1, 2, … are "show different ones". What was shown is recorded in settings.
 #[tauri::command]
-pub fn memories(app: AppHandle, date: String, salt: Option<u32>) -> Result<Vec<Memory>> {
-    let s = load_settings(&app)?;
-    let vault = primary_vault(&s)?;
-    edit_settings(&app, |s| {
-        bookmarks::memories(&vault, &mut s.memories, &date, salt.unwrap_or(0))
-    })
+pub fn memories(shell: State<'_, Shell>, date: String, salt: Option<u32>) -> Result<Vec<Memory>> {
+    let vault = primary_vault(&shell.settings())?;
+    let mut picked = Vec::new();
+    shell.update_settings(|s| {
+        picked = bookmarks::memories(&vault, &mut s.memories, &date, salt.unwrap_or(0));
+        Ok(())
+    })?;
+    Ok(picked)
 }
 
 #[tauri::command]
-pub fn memory_dismiss(app: AppHandle, id: String) -> Result<()> {
-    edit_settings(&app, |s| bookmarks::memory_dismiss(&mut s.memories, &id))
+pub fn memory_dismiss(shell: State<'_, Shell>, id: String) -> Result<()> {
+    shell.update_settings(|s| {
+        bookmarks::memory_dismiss(&mut s.memories, &id);
+        Ok(())
+    })?;
+    Ok(())
+}
+
+/// The hourly re-scan (SPEC 8): every allowed browser profile, into the primary vault.
+/// Quiet when nothing is allowed or there is no vault yet.
+pub fn rescan<R: Runtime>(app: &AppHandle<R>, s: &Settings) {
+    if !s.browsers.values().any(|on| *on) {
+        return;
+    }
+    let (Ok(vault), Ok(home)) = (primary_vault(s), home()) else {
+        return;
+    };
+    for r in bookmarks::rescan_allowed(&vault, &home, s) {
+        for e in &r.errors {
+            eprintln!("vault-hq: bookmark re-scan of {}: {e}", r.source_id);
+        }
+        if r.added + r.updated + r.removed > 0 {
+            let message = format!(
+                "{}: {} new, {} updated, {} gone",
+                r.source_id, r.added, r.updated, r.removed
+            );
+            emit_progress(app, "bookmarks-rescan", 1, 1, message);
+        }
+    }
 }

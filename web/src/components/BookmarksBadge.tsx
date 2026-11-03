@@ -1,4 +1,4 @@
-import { PLATFORM_LABEL, PLATFORM_SHORT, type Platform } from "../api/bookmarks";
+import { PLATFORM_LABEL, PLATFORM_SHORT, type Platform } from "../api/bookmarks.ts";
 
 /** `[yt]`, `[gh]`, `[pdf]`: where a link points, from its URL. */
 export default function PlatformBadge({ platform }: { platform: Platform }) {

@@ -3,11 +3,11 @@
 Read `docs/v2/SPEC.md` first; it is the contract. These rules are how to work.
 
 ## Where you work
-- Only inside your worktree, `/Users/art/Coding/Projects/vault-hq-wt/<stream>`, on branch
+- Only inside your worktree, `$HOME/Coding/Projects/vault-hq-wt/<stream>`, on branch
   `v2-<stream>`. Never edit another worktree, `~/Coding/Projects/vault-hq` (v1, the user's
   running app) or `~/Coding/Projects/vault-hq-public`.
 - Environment for every shell command:
-  `export PATH=/opt/homebrew/opt/rustup/bin:$PATH CARGO_TARGET_DIR=/Users/art/Coding/Projects/vault-hq-wt/target`
+  `export PATH=/opt/homebrew/opt/rustup/bin:$PATH CARGO_TARGET_DIR=$HOME/Coding/Projects/vault-hq-wt/target`
   The build folder is shared by all streams to save disk; cargo waits for its lock, so a
   build may pause while another stream compiles. That is normal.
 - `node_modules` is a symlink to a shared install. Don't run `npm install`; if you truly

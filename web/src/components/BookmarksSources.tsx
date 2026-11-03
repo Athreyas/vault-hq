@@ -9,7 +9,7 @@ import {
   type BookmarkImportReport,
   type BrowserSource,
   type JobProgress,
-} from "../api/bookmarks";
+} from "../api/bookmarks.ts";
 
 type Say = (message: string, kind?: "error") => void;
 

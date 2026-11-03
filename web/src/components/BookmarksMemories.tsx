@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ageLabel, errorMessage, host, memories, memoryDismiss, type Memory } from "../api/bookmarks";
-import PlatformBadge from "./BookmarksBadge";
+import { ageLabel, errorMessage, host, memories, memoryDismiss, type Memory } from "../api/bookmarks.ts";
+import PlatformBadge from "./BookmarksBadge.tsx";
 import "./Bookmarks.css";
 
 function today(): string {
@@ -16,11 +16,13 @@ export default function Memories() {
   const [salt, setSalt] = useState(0);
   const [items, setItems] = useState<Memory[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hidden, setHidden] = useState(false);
 
+  // A Home card that can't load (no vault yet, an older build) stays out of the way.
   const load = useCallback(() => {
     memories(today(), salt)
-      .then((m) => (setItems(m), setError(null)))
-      .catch((e) => setError(errorMessage(e)));
+      .then((m) => (setItems(m), setError(null), setHidden(false)))
+      .catch(() => setHidden(true));
   }, [salt]);
   useEffect(load, [load]);
 
@@ -33,6 +35,7 @@ export default function Memories() {
     }
   }
 
+  if (hidden) return null;
   return (
     <section className="panel bm-memories" aria-label="Memories">
       <header className="panel-head bm-memories-head">

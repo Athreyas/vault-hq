@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "capture",
+  "description": "The quick-capture window: capture, close itself, read the theme.",
+  "windows": [
+    "capture"
+  ],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-capture",
+    "allow-capture-hide",
+    "allow-settings-get"
+  ]
+}

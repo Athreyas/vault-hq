@@ -5,19 +5,21 @@ import {
   bookmarksEnrichCancel,
   bookmarksQuery,
   emptyFilter,
+  enrichEnabled,
   errorMessage,
   host,
   onProgress,
   onVaultChanged,
   PLATFORM_LABEL,
+  setEnrichEnabled,
   type Bookmark,
   type BookmarkFilter,
   type BookmarkPage,
   type JobProgress,
   type Platform,
-} from "../api/bookmarks";
-import PlatformBadge from "./BookmarksBadge";
-import BookmarksSources from "./BookmarksSources";
+} from "../api/bookmarks.ts";
+import PlatformBadge from "./BookmarksBadge.tsx";
+import BookmarksSources from "./BookmarksSources.tsx";
 import "./Bookmarks.css";
 
 type Layout = "grid" | "list";
@@ -140,7 +142,7 @@ function Item({
             open note
           </button>
         )}
-        <button className="link-button" disabled={enriching} onClick={enrich}>
+        <button className="link-button" disabled={enriching} onClick={enrich} title="Needs enrichment turned on (top right)">
           {enriching ? "enriching…" : "enrich"}
         </button>
       </p>
@@ -209,6 +211,7 @@ export default function Bookmarks({ onOpenNote, notify }: { onOpenNote?: (id: st
   const [status, setStatus] = useState<{ message: string; kind?: "error" } | null>(null);
   const [enrich, setEnrich] = useState<JobProgress | null>(null);
   const [enrichRunning, setEnrichRunning] = useState(false);
+  const [enrichOn, setEnrichOn] = useState<boolean | null>(null);
   const query = useDebounced(q, 200);
 
   const say: Say = useCallback(
@@ -233,6 +236,19 @@ export default function Bookmarks({ onOpenNote, notify }: { onOpenNote?: (id: st
       for (const off of offs) off.then((f) => f()).catch(() => {});
     };
   }, [reload]);
+
+  useEffect(() => {
+    enrichEnabled().then(setEnrichOn, () => setEnrichOn(null));
+  }, []);
+
+  async function toggleEnrich(on: boolean) {
+    try {
+      await setEnrichEnabled(on);
+      setEnrichOn(on);
+    } catch (e) {
+      say(errorMessage(e), "error");
+    }
+  }
 
   useEffect(() => {
     try {
@@ -272,6 +288,12 @@ export default function Bookmarks({ onOpenNote, notify }: { onOpenNote?: (id: st
           Bookmarks {page && <span className="count">{page.total}</span>}
         </h1>
         <div className="bm-head-actions">
+          {enrichOn !== null && (
+            <label className="bm-check bm-faint" title="Let your local chat model add tags and a one-line summary. Nothing leaves this Mac or home network.">
+              <input type="checkbox" checked={enrichOn} onChange={(e) => toggleEnrich(e.target.checked)} />
+              enrich with local model
+            </label>
+          )}
           {enrichRunning ? (
             <>
               <span className="bm-faint">
@@ -282,7 +304,7 @@ export default function Bookmarks({ onOpenNote, notify }: { onOpenNote?: (id: st
               </button>
             </>
           ) : (
-            <button className="button" onClick={enrichAll} title="Tags and a one-line summary from your local model">
+            <button className="button" disabled={enrichOn === false} onClick={enrichAll} title="Tags and a one-line summary from your local model">
               Enrich
             </button>
           )}

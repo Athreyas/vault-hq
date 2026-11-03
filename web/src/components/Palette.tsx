@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Status } from "../../../server/types.ts";
 import type { Notify } from "../App.tsx";
 import { VIEWS } from "../App.tsx";
-import type { NoteSummary } from "../../../server/types.ts";
-import { addDays, applyTheme, get, iso, loadAsks, noteUrl, post, savedTheme } from "../api.ts";
+import { addDays, api, iso, noteUrl, notBuilt, savedTheme, setTheme, type NoteSummary } from "../api.ts";
+import { isLoneUrl } from "../lib/text.ts";
+import type { CreateKind } from "./Create.tsx";
 
 interface Item {
   id: string;
@@ -15,32 +15,42 @@ interface Item {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// Ctrl+K: one box to jump to a view, ask the vault, search notes or capture a thought.
+const HINTS: Record<(typeof VIEWS)[number], string> = {
+  home: "overview",
+  needs: "decisions waiting",
+  days: "day, 3 days, week",
+  tasks: "open tasks",
+  inbox: "captures to curate",
+  notes: "read and edit",
+  ask: "search and ask",
+  bookmarks: "saved links",
+};
+
+// ⌘K: one box to jump to a view or note, ask, search, create, or capture a thought.
 export default function Palette({
-  status,
   onClose,
   go,
   ask,
   notify,
   onSaved,
   openSettings,
+  onCreate,
 }: {
-  status: Status | null;
   onClose: () => void;
   go: (hash: string) => void;
   ask: (q: string, mode?: "ask" | "search") => void;
   notify: Notify;
   onSaved: () => void;
   openSettings: () => void;
+  onCreate: (kind: CreateKind, text?: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const list = useRef<HTMLUListElement>(null);
   const text = q.trim();
-  const recent = useMemo(() => loadAsks(), []);
   const [noteList, setNoteList] = useState<NoteSummary[]>([]);
   useEffect(() => {
-    get<NoteSummary[]>("/api/notes").then(setNoteList, () => setNoteList([]));
+    api.notes().then(setNoteList, () => setNoteList([]));
   }, []);
 
   const items = useMemo<Item[]>(() => {
@@ -49,20 +59,39 @@ export default function Palette({
       onClose();
       await fn();
     };
-    const tips = status?.tips;
-    const hints: Record<string, string> = {
-      home: status ? `overview of ${status.vault}` : "overview",
-      needs: tips ? `${status?.needs ?? 0} waiting` : "decisions waiting",
-      days: tips ? `${tips.today} actions today` : "day, 3 days, week",
-      tasks: tips ? `${tips.tasksOpen} open, ${tips.tasksOverdue} overdue` : "Taskwarrior",
-      inbox: tips ? `${tips.inbox} to curate` : "captures",
-      notes: tips ? `read ${tips.notes} notes` : "read notes",
-      ask: tips ? `${tips.notes} notes` : "search and ask",
-    };
-    const nav: Item[] = VIEWS.map((v, i) => ({ id: `go-${v}`, group: "go to", label: v, hint: `${hints[v]} · key ${i + 1}`, run: done(() => go(`#/${v}`)) }));
+    const attempt = (fn: () => Promise<unknown>, ok: string, what: string) =>
+      done(async () => {
+        try {
+          await fn();
+          notify(ok);
+          onSaved();
+        } catch (e) {
+          notify(notBuilt(e) ? `${what} is not in this build yet` : (e as Error).message, "error");
+        }
+      });
+
+    const nav: Item[] = VIEWS.map((v, i) => ({ id: `go-${v}`, group: "go to", label: v, hint: `${HINTS[v]} · key ${i + 1}`, run: done(() => go(`#/${v}`)) }));
     const other = savedTheme() === "dark" ? "light" : "dark";
-    nav.push({ id: "settings", group: "settings", label: "settings", hint: "brain, local AI, app · ⌘,", run: done(openSettings) });
-    nav.push({ id: "theme", group: "settings", label: `theme: ${other}`, hint: `switch to the ${other} theme`, run: done(() => applyTheme(other)) });
+    nav.push({ id: "settings", group: "settings", label: "settings", hint: "vaults, local AI, keys · ⌘,", run: done(openSettings) });
+    nav.push({
+      id: "theme",
+      group: "settings",
+      label: `theme: ${other}`,
+      hint: `switch to the ${other} theme`,
+      run: done(() => setTheme(other).catch((e: Error) => notify(e.message, "error"))),
+    });
+    nav.push({ id: "new-note", group: "create", label: "new note", hint: "from a template · n", run: done(() => onCreate("note", text)) });
+    nav.push({ id: "new-task", group: "create", label: "new task", hint: "due date, priority", run: done(() => onCreate("task", text)) });
+    nav.push({ id: "save-link", group: "create", label: "save link", hint: "a bookmark note", run: done(() => onCreate("bookmark", isLoneUrl(text) ? text : "")) });
+    nav.push({
+      id: "quick-capture",
+      group: "capture",
+      label: "quick capture",
+      hint: "the small window · ⌥⌘Space",
+      run: done(async () => {
+        await api.openCapture().catch((e: Error) => notify(e.message, "error"));
+      }),
+    });
     const days: Item[] = [
       { id: "d-today", group: "days", label: "days: today", hint: t, run: done(() => go(`#/days/${t}`)) },
       { id: "d-yest", group: "days", label: "days: yesterday", hint: addDays(t, -1), run: done(() => go(`#/days/${addDays(t, -1)}`)) },
@@ -70,29 +99,18 @@ export default function Palette({
     ];
     const lower = text.toLowerCase();
     const matches = (i: Item) => !lower || i.label.toLowerCase().includes(lower);
-    const out: Item[] = [];
     const actions: Item[] = [];
     if (DATE_RE.test(text)) actions.push({ id: "a-date", group: "days", label: `open day ${text}`, hint: "Days view", run: done(() => go(`#/days/${text}`)) });
-    if (text.length >= 3) {
+    if (isLoneUrl(text)) {
+      actions.push({ id: "a-link", group: "create", label: `save link: ${text}`, hint: "bookmark now", run: attempt(() => api.bookmarkAdd(text), "Bookmark saved", "Saving links") });
+    } else if (text.length >= 3) {
       actions.push({ id: "a-ask", group: "ask", label: `ask: ${text}`, hint: "local model reads your notes", run: done(() => ask(text, "ask")) });
       actions.push({ id: "a-search", group: "ask", label: `search notes: ${text}`, hint: "matching notes, no model", run: done(() => ask(text, "search")) });
     }
-    if (text.length >= 1) {
-      actions.push({
-        id: "a-capture",
-        group: "capture",
-        label: `capture: ${text}`,
-        hint: "today's inbox note",
-        run: done(async () => {
-          try {
-            await post("/api/capture", { text });
-            notify("Captured to today's inbox note");
-            onSaved();
-          } catch (e) {
-            notify((e as Error).message, "error");
-          }
-        }),
-      });
+    if (text.length >= 1 && !isLoneUrl(text)) {
+      actions.push({ id: "a-capture", group: "capture", label: `capture: ${text}`, hint: "today's inbox note", run: attempt(() => api.capture(text, "note"), "Captured to today's inbox", "Capture") });
+      actions.push({ id: "a-task", group: "create", label: `new task: ${text}`, hint: "add it now", run: attempt(() => api.taskAdd({ description: text }), `Task added: ${text}`, "Adding tasks") });
+      actions.push({ id: "a-note", group: "create", label: `new note: ${text}`, hint: "pick a template", run: done(() => onCreate("note", text)) });
     }
     const shownNav = [...nav, ...days].filter(matches);
     // notes whose title matches every typed word, best (title starts with the text) first
@@ -102,13 +120,11 @@ export default function Palette({
           .filter((n) => words.every((w) => n.title.toLowerCase().includes(w)))
           .sort((a, b) => Number(b.title.toLowerCase().startsWith(lower)) - Number(a.title.toLowerCase().startsWith(lower)) || b.updated.localeCompare(a.updated))
           .slice(0, 6)
-          .map((n) => ({ id: `n-${n.rel}`, group: "notes", label: n.title, hint: n.folder || "vault root", run: done(() => go(noteUrl(n.rel))) }))
+          .map((n) => ({ id: `n-${n.id}`, group: "notes", label: n.title, hint: n.folder || "vault root", run: done(() => go(noteUrl(n.id))) }))
       : [];
     // When the text names a place, places come first; otherwise the actions do.
-    out.push(...(shownNav.length && text ? [...shownNav, ...noteHits, ...actions] : [...noteHits, ...actions, ...shownNav]));
-    if (!text) for (const r of recent.slice(0, 5)) out.push({ id: `r-${r.id}`, group: "recent", label: r.question, hint: r.mode === "ask" ? "ask again" : "search again", run: done(() => ask(r.question, r.mode)) });
-    return out;
-  }, [text, status, recent, noteList, go, ask, notify, onSaved, onClose, openSettings]);
+    return shownNav.length && text ? [...shownNav, ...noteHits, ...actions] : [...noteHits, ...actions, ...shownNav];
+  }, [text, noteList, go, ask, notify, onSaved, onClose, openSettings, onCreate]);
 
   useEffect(() => setSel(0), [text]);
   useEffect(() => {
@@ -134,7 +150,7 @@ export default function Palette({
         <div className="prompt">
           <span aria-hidden="true">❯</span>
           <label className="sr-only" htmlFor="palette-q">
-            Type a place, a question or a thought
+            Type a place, a question, a link or a thought
           </label>
           <input
             id="palette-q"
@@ -142,7 +158,7 @@ export default function Palette({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKey}
-            placeholder="go to, ask, search or capture"
+            placeholder="go to, ask, search, create or capture"
             autoComplete="off"
             spellCheck={false}
             role="combobox"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ageLabel, errorMessage, host, htmlSource, PLATFORM_LABEL, PLATFORM_SHORT } from "./bookmarks";
+import { ageLabel, errorMessage, host, htmlSource, PLATFORM_LABEL, PLATFORM_SHORT } from "./bookmarks.ts";
 
 describe("bookmark helpers", () => {
   it("shortens hosts", () => {
