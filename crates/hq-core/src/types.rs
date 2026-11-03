@@ -229,6 +229,7 @@ pub struct ImportAnalysis {
     pub broken_link_count: u32,
     pub untagged: u32,
     pub attachments: u32,
+    #[ts(type = "number")]
     pub attachment_bytes: u64,
     pub attachment_kinds: Vec<KindCount>,
     pub unreadable: Vec<String>,

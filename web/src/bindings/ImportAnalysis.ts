@@ -10,7 +10,7 @@ export type ImportAnalysis = { root: string, notes: number, noFrontmatter: numbe
 /**
  * At most a few hundred, so a very broken vault still answers quickly.
  */
-brokenLinks: Array<BrokenLink>, brokenLinkCount: number, untagged: number, attachments: number, attachmentBytes: bigint, attachmentKinds: Array<KindCount>, unreadable: Array<string>, 
+brokenLinks: Array<BrokenLink>, brokenLinkCount: number, untagged: number, attachments: number, attachmentBytes: number, attachmentKinds: Array<KindCount>, unreadable: Array<string>, 
 /**
  * Folders HQ expects that are missing.
  */
