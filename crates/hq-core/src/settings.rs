@@ -21,6 +21,8 @@ pub struct Settings {
     pub blocked_vault_names: Vec<String>,
     pub theme: Theme,
     pub hotkeys: Hotkeys,
+    /// Needs-you items hidden until a date: need id -> `YYYY-MM-DD` it comes back.
+    pub snoozed: BTreeMap<String, String>,
     // ---- C search
     pub ollama: OllamaSettings,
     // ---- E onboarding

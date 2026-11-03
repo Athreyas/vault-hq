@@ -1,5 +1,6 @@
 //! Vaults: the marker file and scanning (Phase 0); registry, layout, watcher (stream A).
 
+pub mod checkboxes;
 pub mod layout;
 pub mod registry;
 pub mod scan;
