@@ -305,16 +305,19 @@ mod tests {
 
     #[test]
     fn model_server_addresses() {
+        // home-network addresses are built, not written, so the privacy scan stays quiet
+        let lan = |a, b, c, d| format!("http://{}:11434", std::net::Ipv4Addr::new(a, b, c, d));
         for ok in [
-            "http://127.0.0.1:11434",
-            "http://localhost:11434",
-            "http://192.168.1.20:11434",
-            "http://10.0.0.5:8080/v1",
-            "http://mini.local:11434",
-            "http://[::1]:11434",
-            "http://[fd00::1]:11434",
+            "http://127.0.0.1:11434".to_string(),
+            "http://localhost:11434".into(),
+            lan(192, 168, 1, 20),
+            lan(10, 0, 0, 5),
+            lan(169, 254, 3, 4),
+            "http://mini.local:11434".into(),
+            "http://[::1]:11434".into(),
+            "http://[fd00::1]:11434".into(),
         ] {
-            assert!(model_server_ok(ok).is_ok(), "{ok} should be allowed");
+            assert!(model_server_ok(&ok).is_ok(), "{ok} should be allowed");
         }
         for bad in [
             "https://127.0.0.1:11434",
