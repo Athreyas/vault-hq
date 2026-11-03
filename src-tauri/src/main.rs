@@ -123,7 +123,7 @@ fn main() {
                 })
                 .build(),
         )
-        .menu(|handle| Menu::default(handle)) // Edit menu, so copy and paste work in the page
+        .menu(Menu::default) // Edit menu, so copy and paste work in the page
         .setup(move |app| {
             let handle = app.handle().clone();
 

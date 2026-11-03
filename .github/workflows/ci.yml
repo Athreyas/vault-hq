@@ -1,0 +1,116 @@
+# The checks every push to v2/main and every PR must pass (docs/v2/SPEC.md section 14).
+# Nothing here signs, notarizes or publishes: releases are made only on the
+# maintainer's Mac with scripts/release.sh, so CI holds no secrets.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [v2, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, test, bindings, app build)
+    # The app is Apple Silicon only; build and test where it runs.
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: TypeScript bindings are up to date
+        run: |
+          cargo test -p hq-core export_bindings
+          if ! git diff --exit-code -- web/src/bindings \
+            || [ -n "$(git status --porcelain -- web/src/bindings)" ]; then
+            echo "::error::web/src/bindings is out of date. Run 'cargo test -p hq-core export_bindings' and commit the result."
+            git status --short -- web/src/bindings
+            exit 1
+          fi
+
+      # The Tauri CLI comes from npm (package.json), so the app build needs node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+
+      - run: npm ci
+
+      - name: App compiles (tauri build --no-bundle)
+        run: npx tauri build --no-bundle --debug
+
+  web:
+    name: Web (typecheck, test, build, audit)
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (vitest)
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: npm audit (runtime dependencies)
+        run: npm audit --omit=dev --audit-level=high
+
+  deny:
+    name: Licenses and advisories (cargo deny)
+    # cargo-deny-action is a container action, so it needs a Linux runner; deny.toml
+    # resolves the graph for aarch64-apple-darwin, so the result is the Mac app's.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+  privacy:
+    name: Privacy scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      # CI has only the generic patterns; the maintainer's .privacy-terms stays local.
+      - name: scripts/privacy-check.sh
+        run: scripts/privacy-check.sh
