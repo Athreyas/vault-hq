@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = ["crates/hq-core", "crates/hq-mcp", "src-tauri"]
+
+[workspace.package]
+version = "2.0.0-dev"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/Athreyas/vault-hq"
+
+[workspace.dependencies]
+hq-core = { path = "crates/hq-core" }
+hq-mcp = { path = "crates/hq-mcp" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+ts-rs = "12"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

@@ -1,0 +1,3 @@
+# ts-rs writes the UI's TypeScript types here (cargo test -p hq-core export_bindings)
+[env]
+TS_RS_EXPORT_DIR = { value = "web/src/bindings", relative = true }
