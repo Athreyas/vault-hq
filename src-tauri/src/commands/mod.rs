@@ -22,6 +22,8 @@ pub mod tasks;
 pub mod search;
 // F bookmarks
 pub mod bookmarks;
+// W widgets
+pub mod widgets;
 
 mod names;
 pub use names::{CAPTURE_WINDOW, COMMANDS};
@@ -90,6 +92,11 @@ macro_rules! hq_commands {
             bookmarks::bookmarks_enrich_cancel,
             bookmarks::memories,
             bookmarks::memory_dismiss,
+            // W widgets
+            widgets::widgets_catalog,
+            widgets::widgets_layout_get,
+            widgets::widgets_layout_set,
+            widgets::widget_data,
         ]
     };
 }

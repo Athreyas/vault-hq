@@ -274,7 +274,7 @@ All types live in `hq-core/src/types.rs` and are exported to TypeScript. Errors 
 | ai | `ollama_status() -> OllamaStatus`, `ollama_recommend() -> Recommendation` |
 | bookmarks | `browsers_detect() -> BrowserSource[]`, `browser_allow(source_id, allowed)`, `bookmarks_import(source_id, dry_run) -> ImportReport`, `bookmarks_query(q, filter)`, `bookmark_add(url, note?)`, `bookmarks_enrich(ids?)`, `memories(date, salt) -> Memory[]`, `memory_dismiss(id)` |
 | onboarding | `onboarding_state()`, `onboarding_set_step(step)`, `agents_catalog() -> Agent[]`, `agent_prompt(agent_id, vault_id) -> String`, `agent_config_preview(agent_id) -> ConfigDiff`, `agent_config_apply(agent_id)`, `import_analyze(path) -> ImportAnalysis`, `import_apply(plan) -> ImportReport` |
-| widgets | `widgets_layout_get()`, `widgets_layout_set(layout)`, `widget_data(kind, config) -> WidgetData` |
+| widgets | `widgets_catalog() -> WidgetCatalogEntry[]`, `widgets_layout_get()`, `widgets_layout_set(layout)`, `widget_data(kind, config) -> WidgetData` |
 
 **Events** (`listen`): `vault://changed {vault, rels}`, `ask://event`, `jobs://progress {job, done, total, message}`, `capture://open`.
 
