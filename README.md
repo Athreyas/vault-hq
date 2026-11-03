@@ -119,3 +119,7 @@ The three Ollama values can also be changed in Settings (⌘,); they are saved t
 - **iCloud evictions:** the first load after iCloud evicts the vault's notes takes about 2 minutes while they download again. In Finder, right-click the vault folder and choose **Keep Downloaded**. This doesn't apply to a vault in a plain local folder.
 - **First Ask:** the first question after a vault change embeds the new chunks, which takes about a minute for the whole vault and seconds after that.
 - **Answer quality:** an 8B model sometimes picks an older fact over a newer one. The sources under each answer show what it read; trust those over the prose.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

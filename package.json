@@ -1,6 +1,6 @@
 {
   "name": "vault-hq",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "A local front end for an Obsidian-style markdown vault: what needs you, your days, tasks, notes you can read and edit, and Ask on local models.",
   "type": "module",
@@ -29,5 +29,6 @@
     "@vitejs/plugin-react": "^6.1.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.5"
-  }
+  },
+  "license": "MIT"
 }
