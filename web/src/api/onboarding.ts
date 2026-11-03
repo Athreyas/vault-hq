@@ -13,9 +13,12 @@ import type { EnrichReport } from "../bindings/EnrichReport.ts";
 import type { ImportAnalysis } from "../bindings/ImportAnalysis.ts";
 import type { ImportPlan } from "../bindings/ImportPlan.ts";
 import type { LocationSuggestion } from "../bindings/LocationSuggestion.ts";
+import type { OllamaStatus } from "../bindings/OllamaStatus.ts";
 import type { OnboardingState } from "../bindings/OnboardingState.ts";
+import type { Recommendation } from "../bindings/Recommendation.ts";
 import type { RestructureReport } from "../bindings/RestructureReport.ts";
 import type { ScaffoldReport } from "../bindings/ScaffoldReport.ts";
+import type { Settings } from "../bindings/Settings.ts";
 import type { TaskImportReport } from "../bindings/TaskImportReport.ts";
 import type { VaultInfo } from "../bindings/VaultInfo.ts";
 
@@ -94,14 +97,13 @@ export const importAnalyze = (path: string) => call<ImportAnalysis>("import_anal
 export const importApply = (plan: ImportPlan) => call<RestructureReport>("import_apply", { plan });
 export const importUndo = (path: string, journal: string) => call<RestructureReport>("import_undo", { path, journal });
 
-// ---- other streams, by their SPEC names: B tasks and F bookmarks use their generated types;
-// A (vaults) and C (Ollama) keep loose local shapes until their types are settled. ----------
+// ---- other streams, by their SPEC names, typed from their generated bindings ----------------
 
 export const vaultsList = () => call<VaultInfo[]>("vaults_list");
 export const vaultCreate = (path: string, name: string) =>
   call<VaultInfo>("vault_create", { path, name, layout: "default" });
 export const vaultAdd = (path: string) => call<VaultInfo>("vault_add", { path });
-export const vaultSetPrimary = (id: string) => call<unknown>("vault_set_primary", { id });
+export const vaultSetPrimary = (id: string) => call<VaultInfo[]>("vault_set_primary", { id });
 
 /** Stream B's Taskwarrior import into the primary vault; `dryRun` first, then for real. */
 export const tasksImport = (dryRun: boolean) => call<TaskImportReport>("tasks_import_taskwarrior", { dryRun });
@@ -115,25 +117,10 @@ export function taskReportLine(r: TaskImportReport): string {
   return parts.join(" · ");
 }
 
-export interface OllamaStatus {
-  url: string;
-  up: boolean;
-  binary?: string | boolean | null;
-  models: string[];
-  chatModel?: string;
-  embedModel?: string;
-  problem?: string | null;
-}
-export interface Recommendation {
-  memoryGb: number;
-  embed: string;
-  chat: string[];
-  commands?: string[];
-  pulls?: string[];
-}
+export type { OllamaStatus, Recommendation };
 export const ollamaStatus = () => call<OllamaStatus>("ollama_status");
 export const ollamaRecommend = () => call<Recommendation>("ollama_recommend");
-export const settingsUpdate = (patch: Record<string, unknown>) => call<unknown>("settings_update", { patch });
+export const settingsUpdate = (patch: Record<string, unknown>) => call<Settings>("settings_update", { patch });
 
 /** Stream F's browser sources; nothing is read until `browserAllow`. */
 export const browsersDetect = () => call<BrowserSource[]>("browsers_detect");

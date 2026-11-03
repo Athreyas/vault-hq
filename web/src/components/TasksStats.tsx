@@ -228,14 +228,14 @@ export default function TasksStats({ project, tag }: { project: string | null; t
           </dd>
         </div>
         <div>
-          <dt>burn rate</dt>
-          <dd>{stats.burnRate.toFixed(1)}/day</dd>
+          <dt>burn rate {stats.days.length}d</dt>
+          <dd title="done per day over the window">{stats.burnRate.toFixed(2)}/day</dd>
         </div>
         <div>
-          <dt>net change</dt>
-          <dd>
+          <dt>net change {stats.days.length}d</dt>
+          <dd title="open tasks gained (+) or lost (−) per day over the window">
             {stats.netPerDay > 0 ? "+" : ""}
-            {stats.netPerDay.toFixed(1)}/day
+            {stats.netPerDay.toFixed(2)}/day
           </dd>
         </div>
         <div>

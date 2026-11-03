@@ -8,15 +8,16 @@ export type TaskStats = { from: string, to: string,
  */
 days: Array<DayStat>, open: number, overdue: number, done7: number, done30: number, 
 /**
- * Of the tasks created in the last 7 / 30 days, the share now done (0–1).
+ * Done in the last 7 / 30 days over (that done + open now): the share of the
+ * period's work that got done (0–1).
  */
 completion7: number, completion30: number, 
 /**
- * Done per day, averaged over the last 7 days.
+ * Done per day, averaged over the window (`from`..`to`).
  */
 burnRate: number, 
 /**
- * Open tasks grow by this much per day, averaged over the last 7 days.
+ * Open tasks grow by this much per day over the window (negative: shrinking).
  */
 netPerDay: number, 
 /**

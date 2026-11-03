@@ -161,7 +161,7 @@ export function StepAI() {
     );
 
   const models = splitModels(status?.models ?? []);
-  const pulls = rec?.commands ?? rec?.pulls ?? [];
+  const pulls = rec?.commands ?? [];
 
   return (
     <div className="ob-stack">

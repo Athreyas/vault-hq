@@ -877,11 +877,18 @@ textarea::placeholder {
   gap: var(--space-5);
 }
 
+/* the range toggle and earlier/today/later stay in reach while the day columns scroll */
 .days-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3) var(--space-5);
+  padding-block: var(--space-3);
+  border-bottom: var(--line-w) solid var(--line);
+  background: var(--bg);
 }
 
 .days-nav {
@@ -2357,4 +2364,32 @@ textarea::placeholder {
 .capture-foot {
   color: var(--ink-faint);
   font-size: var(--t-xs);
+}
+
+/* a long vault path wraps inside its card (the full path is also the card's tooltip) */
+.set-vaults > li,
+.set-vault,
+.set-vault-row > div:first-child {
+  min-width: 0;
+}
+
+.set-vault b,
+.set-vault small,
+.set-vault-row .set-path {
+  overflow-wrap: anywhere;
+}
+
+/* a view that threw while rendering: shown in its place, the rest of the window works */
+.view-error {
+  display: grid;
+  gap: var(--space-3);
+  margin: var(--space-5) auto;
+  max-width: 720px;
+  padding: var(--space-4) var(--space-5);
+  border: var(--line-w) solid var(--attention);
+  background: var(--bg-raised);
+}
+
+.view-error b {
+  color: var(--attention);
 }

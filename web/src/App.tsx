@@ -4,6 +4,7 @@ import Ask from "./components/Ask.tsx";
 import Bookmarks from "./components/Bookmarks.tsx";
 import Create, { type CreateKind } from "./components/Create.tsx";
 import Days from "./components/Days.tsx";
+import ErrorBoundary from "./components/ErrorBoundary.tsx";
 import Hints from "./components/Hints.tsx";
 import Home from "./components/Home.tsx";
 import Inbox from "./components/Inbox.tsx";
@@ -159,6 +160,12 @@ export default function App() {
     };
   }, []);
 
+  // The stage is one scroller shared by every view: a new view starts at its top, not
+  // at the scroll position the previous view left (which hid the Days header).
+  useEffect(() => {
+    document.getElementById("main")?.scrollTo({ top: 0 });
+  }, [route.view]);
+
   // Global keys. Ctrl/⌘K works everywhere, including inside inputs; the single-key
   // shortcuts only fire when no field has focus and no dialog is open.
   useEffect(() => {
@@ -210,22 +217,36 @@ export default function App() {
     <div className="app">
       <TopBar now={now} route={route} status={status.data} counts={counts.data} onCreate={startCreate} />
       <main className="stage" id="main">
-        {route.view === "home" && <Home date={route.date} onAsk={ask} />}
-        {route.view === "needs" && <NeedsYou notify={notify} onChange={changed} />}
-        {route.view === "days" && <Days date={route.date} span={route.span} notify={notify} />}
-        {route.view === "tasks" && <Tasks notify={notify} onChange={changed} />}
-        {route.view === "inbox" && <Inbox notify={notify} onChange={changed} />}
-        {route.view === "notes" && <Notes note={route.note} notify={notify} />}
-        {route.view === "ask" && <Ask req={askReq} suggestions={[]} />}
-        {route.view === "bookmarks" && (
-          <Bookmarks notify={(m, kind) => notify(m, kind === "error" ? "error" : "ok")} onOpenNote={(id) => go(`#/notes/${encodeURIComponent(id)}`)} />
-        )}
-        {/* ---- streams: add view elements above this line ---- */}
+        <ErrorBoundary name="view" resetKey={`${route.view}/${route.note ?? ""}`}>
+          {route.view === "home" && <Home date={route.date} onAsk={ask} />}
+          {route.view === "needs" && <NeedsYou notify={notify} onChange={changed} />}
+          {route.view === "days" && <Days date={route.date} span={route.span} notify={notify} />}
+          {route.view === "tasks" && <Tasks notify={notify} onChange={changed} />}
+          {route.view === "inbox" && <Inbox notify={notify} onChange={changed} />}
+          {route.view === "notes" && <Notes note={route.note} notify={notify} />}
+          {route.view === "ask" && <Ask req={askReq} suggestions={[]} />}
+          {route.view === "bookmarks" && (
+            <Bookmarks notify={(m, kind) => notify(m, kind === "error" ? "error" : "ok")} onOpenNote={(id) => go(`#/notes/${encodeURIComponent(id)}`)} />
+          )}
+          {/* ---- streams: add view elements above this line ---- */}
+        </ErrorBoundary>
       </main>
       <Hints view={route.view} />
-      {palette && <Palette onClose={() => setPalette(false)} go={go} ask={ask} notify={notify} onSaved={changed} openSettings={() => setSettings(true)} onCreate={startCreate} />}
-      {settings && <Settings status={status.data} onClose={() => setSettings(false)} notify={notify} onChange={changed} />}
-      {create && <Create request={create} status={status.data} onClose={() => setCreate(null)} notify={notify} go={go} onSaved={changed} />}
+      {palette && (
+        <ErrorBoundary name="palette" onClose={() => setPalette(false)}>
+          <Palette onClose={() => setPalette(false)} go={go} ask={ask} notify={notify} onSaved={changed} openSettings={() => setSettings(true)} onCreate={startCreate} />
+        </ErrorBoundary>
+      )}
+      {settings && (
+        <ErrorBoundary name="settings panel" onClose={() => setSettings(false)}>
+          <Settings status={status.data} onClose={() => setSettings(false)} notify={notify} onChange={changed} />
+        </ErrorBoundary>
+      )}
+      {create && (
+        <ErrorBoundary name="create dialog" onClose={() => setCreate(null)}>
+          <Create request={create} status={status.data} onClose={() => setCreate(null)} notify={notify} go={go} onSaved={changed} />
+        </ErrorBoundary>
+      )}
       <div className={`toast ${toast ? "is-shown" : ""} ${toast?.tone === "error" ? "is-error" : ""}`} role="status" aria-live="polite">
         {toast?.message}
       </div>
