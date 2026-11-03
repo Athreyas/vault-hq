@@ -1507,9 +1507,11 @@ dependencies = [
 name = "hq-mcp"
 version = "2.0.0-dev"
 dependencies = [
+ "chrono",
  "hq-core",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

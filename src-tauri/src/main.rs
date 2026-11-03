@@ -108,6 +108,17 @@ fn toggle(app: &AppHandle) {
 }
 
 fn main() {
+    // ---- G mcp: `vault-hq mcp` is the stdio MCP server, before any window, plugin or
+    // single-instance check starts (an agent's server must not wake or focus the app)
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        if let Err(e) = hq_mcp::serve_stdio() {
+            eprintln!("vault-hq mcp: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    // ---- end G mcp
+
     let hotkey = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::Space);
 
     let app = tauri::Builder::default()
