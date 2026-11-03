@@ -2,14 +2,15 @@
 
 **Your data. Your knowledge. On your terms.**
 
-Vault HQ is a native Mac app for your second brain, built so that you stay in control
-of everything you know. Your notes, tasks and bookmarks are plain markdown files in
+Vault HQ is your second brain: one place for anything and everything you want to know,
+learn and remember, on your Mac and under your control. Your notes, tasks and bookmarks are plain markdown files in
 folders you choose; the models that search and answer run on your own Mac; there is no
 account, no cloud and no telemetry. Nothing to export, nothing locked in, nothing that
 leaves the machine unless you send it.
 
-You, your editors and your AI agents all write into the same files. HQ is where you see
-them, act on them and ask them questions.
+Ideas, notes, things you're learning, people and places, links you saved, decisions you
+made, what you did today and what's next: you, your editors and your AI agents all write
+it into the same files, and HQ is where you find it again, act on it and ask it questions.
 
 > Envisioned and architected by **[Athreyas](https://monk97.me)** · built with **[Claude Code](https://claude.com/claude-code)**
 
@@ -39,8 +40,8 @@ replaces everything around them.
 
 ## What it does
 
-- **Home**: what needs you now, active projects, the day's trail, and widgets you
-  arrange yourself (this Mac's load, task burn rate, a JSON status of your choice…).
+- **Home**: your day at a glance: what needs you, what you captured and learned, things
+  worth remembering resurfacing on their own, and widgets you arrange yourself.
 - **Ask**: a chat with your notes and bookmarks on a local model (Ollama). Answers stream
   in as they are written, cite the notes they used, and every conversation is saved as a
   note.

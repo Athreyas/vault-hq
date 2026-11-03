@@ -142,7 +142,7 @@ export default function Settings({ status, onClose, notify, onChange }: { status
               <p className="about-name">
                 <b>▌hq</b> Vault HQ {status?.version ?? ""}
               </p>
-              <p className="lede">Your data and your knowledge stay yours.</p>
+              <p className="lede">Your second brain: anything you want to know, learn and remember, in one place. And it stays yours.</p>
               <ul className="about-points">
                 <li>Everything lives as plain markdown in folders you choose. Any tool can read it; nothing needs exporting.</li>
                 <li>Search and Ask run on a model on this Mac or your home network. No account, no cloud, no telemetry.</li>
