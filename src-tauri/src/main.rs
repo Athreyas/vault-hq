@@ -70,7 +70,10 @@ fn run() {
                 Shell::degraded(dirs, &e)
             });
             let keys = shell.settings().hotkeys;
+            let tasks_cache = shell.dirs.cache.clone();
             app.manage(shell);
+            // B tasks: answers from the cached index until the first command scans
+            app.manage(commands::tasks::TasksState::new(tasks_cache));
             // ---- stream A: app.manage(hq_core::hq::Hq::open(...)?) goes here ----
 
             if cfg!(debug_assertions) {
