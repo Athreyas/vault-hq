@@ -36,7 +36,7 @@ const W_BM25: f64 = 0.45;
 const W_COSINE: f64 = 0.55;
 
 /// Every vault's chunks plus the BM25 statistics over them, kept in memory.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Index {
     chunks: Vec<Chunk>,
     bm25: Bm25,

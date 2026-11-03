@@ -7,7 +7,7 @@ use super::chunk::Chunk;
 const K1: f64 = 1.2;
 const B: f64 = 0.75;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Bm25 {
     /// Chunks each token appears in.
     df: HashMap<String, u32>,

@@ -134,6 +134,26 @@ pub fn tidy_citations(answer: &str, stems: &[String]) -> String {
     out
 }
 
+/// The source stems the answer links to, in source order; every source if it links none.
+pub fn cited_sources(answer: &str, stems: &[String]) -> Vec<String> {
+    let mut all: Vec<String> = Vec::new();
+    for s in stems {
+        if !all.contains(s) {
+            all.push(s.clone());
+        }
+    }
+    let linked: Vec<String> = all
+        .iter()
+        .filter(|s| answer.contains(&format!("[[{s}]]")) || answer.contains(&format!("[[{s}|")))
+        .cloned()
+        .collect();
+    if linked.is_empty() {
+        all
+    } else {
+        linked
+    }
+}
+
 fn find_excerpt(s: &str) -> Option<usize> {
     let a = s.find("Excerpt ");
     let b = s.find("excerpt ");
@@ -248,12 +268,7 @@ fn run(
     let stems: Vec<String> = sources.iter().map(|s| s.stem.clone()).collect();
     let answer = tidy_citations(&streamed.text, &stems);
 
-    let mut cited: Vec<String> = Vec::new();
-    for s in &stems {
-        if !cited.contains(s) {
-            cited.push(s.clone());
-        }
-    }
+    let cited = cited_sources(&answer, &stems);
     let turn = Turn {
         at: format!("{} {}", util::today(), util::now_hhmm()),
         question: question.to_string(),
@@ -519,5 +534,7 @@ mod tests {
         );
         assert_eq!(tidy_citations("No excerpt here", &stems), "No excerpt here");
         assert_eq!(tidy_citations("Excerpts 1", &stems), "[[garden]]");
+        assert_eq!(cited_sources("see [[fence]]", &stems), vec!["fence"]);
+        assert_eq!(cited_sources("no links", &stems), stems);
     }
 }
