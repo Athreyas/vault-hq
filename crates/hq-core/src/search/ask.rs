@@ -43,7 +43,8 @@ fn system_prompt(today: &str) -> String {
          and give a URL only when the user asks for a link. \
          When a live task list is given, it is the true current state of the user's tasks: \
          answer any question about tasks, due dates or plans from it (list the tasks, with \
-         their dates and [[note]]), and treat notes that only describe tasks as background. \
+         their dates and [[note]]; for 'today', also name what is overdue), and treat notes \
+         that only describe tasks as background. \
          If the excerpts do not answer the question, say plainly that the notes don't say. \
          Answer directly: a short paragraph or a few bullets, no preamble."
     )
@@ -235,9 +236,12 @@ fn run(
     };
     let history: &[Turn] = follow.as_ref().map_or(&[], |f| &f.2);
     // "and when?" finds nothing alone: search with the previous question as well
+    // ("what tasks do I have today?" after a question about courses stands on its own)
     let retrieval = match history.last() {
-        Some(prev) => format!("{} {question}", prev.question),
-        None => question.to_string(),
+        Some(prev) if question.split_whitespace().count() < 5 => {
+            format!("{} {question}", prev.question)
+        }
+        _ => question.to_string(),
     };
     // past answers are not sources: a wrong one would be read back as a fact
     let mut ranked = rank(

@@ -68,13 +68,24 @@ pub fn summary(vault: &Vault, note: &Note) -> NoteSummary {
 }
 
 /// Notes the vault keeps for its agents rather than for reading: their rules
-/// (`AGENTS.md`, `CLAUDE.md`, at any depth) and their memory (`06-Memory/`: sessions,
-/// facts, saved Ask conversations).
+/// (`AGENTS.md`, `CLAUDE.md` at any depth, `07-Agents/`) and their memory (`06-Memory/`:
+/// sessions, facts, saved Ask conversations).
 pub fn is_system(rel: &str) -> bool {
     let name = rel.rsplit('/').next().unwrap_or(rel);
     name.eq_ignore_ascii_case("AGENTS.md")
         || name.eq_ignore_ascii_case("CLAUDE.md")
         || rel.starts_with("06-Memory/")
+        || rel.starts_with("07-Agents/")
+}
+
+/// An agent's raw session dump waiting in the inbox to be curated into memory
+/// (tagged `session-capture` or `compact` by the session hooks).
+fn is_session_capture(props: &std::collections::BTreeMap<String, String>) -> bool {
+    props.get("tags").is_some_and(|t| {
+        frontmatter::list(t)
+            .iter()
+            .any(|x| x == "session-capture" || x == "compact")
+    })
 }
 
 pub fn list(snaps: &[Snapshot], filter: &NoteFilter) -> Vec<NoteSummary> {
@@ -94,7 +105,9 @@ pub fn list(snaps: &[Snapshot], filter: &NoteFilter) -> Vec<NoteSummary> {
             continue;
         }
         for n in &s.scan.notes {
-            if filter.hide_system == Some(true) && is_system(&n.rel) {
+            if filter.hide_system == Some(true)
+                && (is_system(&n.rel) || is_session_capture(&n.props))
+            {
                 continue;
             }
             if folder.is_some_and(|f| !(folder_of(&n.rel) == f || layout::is_in(&n.rel, f))) {
@@ -1401,7 +1414,12 @@ mod tests {
             vec!["Alpha"]
         );
         assert!(is_system("AGENTS.md") && is_system("01-Projects/x/CLAUDE.md"));
-        assert!(is_system("06-Memory/sessions/garden.md"));
+        assert!(is_system("06-Memory/sessions/garden.md") && is_system("07-Agents/cursor.md"));
+        let mut p = std::collections::BTreeMap::new();
+        p.insert("tags".to_string(), "[inbox, compact, garden]".to_string());
+        assert!(is_session_capture(&p));
+        p.insert("tags".to_string(), "[inbox, idea]".to_string());
+        assert!(!is_session_capture(&p));
         assert!(!is_system("01-Projects/memory-palace.md"));
         assert_eq!(
             f(NoteFilter {

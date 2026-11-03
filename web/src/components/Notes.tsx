@@ -19,6 +19,8 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
   const input = useRef<HTMLInputElement>(null);
   const shown = note && view.data ? view.data : null;
   const vaults = useMemo(() => new Set((list.data ?? []).map((n) => n.vault)).size, [list.data]);
+  const vaultInfo = useCall(() => api.vaults(), "vaults");
+  const vaultName = useMemo(() => new Map((vaultInfo.data ?? []).map((v) => [v.id, v.name])), [vaultInfo.data]);
 
   const items = useMemo(() => {
     const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
@@ -105,7 +107,7 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
         {list.error && <Problem error={list.error} what="the note list" />}
         <ul className="note-list">
           {items.map((n, i) => {
-            const folder = vaults > 1 ? `${n.vault.slice(0, 6)} · ${n.folder}` : n.folder;
+            const folder = vaults > 1 ? `${vaultName.get(n.vault) ?? n.vault.slice(0, 6)} · ${n.folder}` : n.folder;
             const head = sort === "folder" && folder !== lastFolder ? folder || "vault root" : null;
             lastFolder = folder;
             const active = shown?.id === n.id;
