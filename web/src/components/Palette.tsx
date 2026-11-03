@@ -23,6 +23,7 @@ const HINTS: Record<(typeof VIEWS)[number], string> = {
   inbox: "captures to curate",
   notes: "read and edit",
   ask: "search and ask",
+  bookmarks: "saved links",
 };
 
 // ⌘K: one box to jump to a view or note, ask, search, create, or capture a thought.
