@@ -184,7 +184,7 @@ export default function App() {
         {route.view === "tasks" && <Tasks notify={notify} onChange={changed} />}
         {route.view === "inbox" && <Inbox notify={notify} onChange={changed} />}
         {route.view === "notes" && <Notes note={route.note} notify={notify} />}
-        {route.view === "ask" && <Ask req={askReq} />}
+        {route.view === "ask" && <Ask req={askReq} suggestions={[]} />}
         {/* ---- streams: add view elements above this line ---- */}
       </main>
       <Hints view={route.view} />

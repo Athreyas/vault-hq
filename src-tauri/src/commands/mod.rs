@@ -9,6 +9,7 @@ use tauri::{generate_handler, Runtime};
 
 pub mod app;
 // ---- streams: add `pub mod <area>;` below (A core, B tasks, C search, E, F, W) ----
+pub mod search;
 
 mod names;
 pub use names::{CAPTURE_WINDOW, COMMANDS};
@@ -26,6 +27,14 @@ macro_rules! hq_commands {
             app::capture_open,
             app::capture_hide,
             // ---- streams: add `<area>::<command>,` lines below ----
+            // C search
+            search::search,
+            search::ask_start,
+            search::ask_cancel,
+            search::conversations_list,
+            search::conversation_get,
+            search::ollama_status,
+            search::ollama_recommend,
         ]
     };
 }
