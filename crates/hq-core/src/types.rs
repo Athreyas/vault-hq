@@ -1652,6 +1652,11 @@ pub struct SystemSample {
     pub disk_free: Option<u64>,
     #[ts(type = "number | null")]
     pub disk_total: Option<u64>,
+    /// What Finder calls available: free space plus purgeable space (iCloud copies that
+    /// can be downloaded again, caches, local snapshots) that macOS clears on demand.
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub disk_available: Option<u64>,
     pub battery: Option<Battery>,
     #[ts(type = "number")]
     pub uptime_secs: u64,

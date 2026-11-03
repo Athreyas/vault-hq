@@ -1600,6 +1600,8 @@ dependencies = [
  "indexmap 2.14.2",
  "libc",
  "notify",
+ "objc2",
+ "objc2-foundation",
  "plist",
  "rusqlite",
  "serde",

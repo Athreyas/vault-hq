@@ -91,6 +91,8 @@ impl Sampler {
         if let Some((free, total)) = disk_space() {
             s.disk_free = Some(free);
             s.disk_total = Some(total);
+            // never below the free figure: purgeable space only adds to it
+            s.disk_available = disk_available().map(|a| a.max(free));
         }
         s.battery = self.battery();
 
@@ -216,6 +218,33 @@ fn disk_space() -> Option<(u64, u64)> {
     }
     let frsize = st.f_frsize as u64;
     Some((st.f_bavail as u64 * frsize, st.f_blocks as u64 * frsize))
+}
+
+/// Finder's figure: free plus what macOS would purge for an important write. `statvfs`
+/// counts only space that is free now, so the two can differ by tens of GB when iCloud
+/// keeps local copies.
+#[cfg(target_os = "macos")]
+fn disk_available() -> Option<u64> {
+    use objc2_foundation::{
+        NSNumber, NSString, NSURLVolumeAvailableCapacityForImportantUsageKey, NSURL,
+    };
+    let url = NSURL::fileURLWithPath(&NSString::from_str("/"));
+    let mut value = None;
+    // SAFETY: the key is a Foundation constant, and its documented value is an NSNumber.
+    unsafe {
+        url.getResourceValue_forKey_error(
+            &mut value,
+            NSURLVolumeAvailableCapacityForImportantUsageKey,
+        )
+    }
+    .ok()?;
+    let n = value?.downcast::<NSNumber>().ok()?;
+    u64::try_from(n.longLongValue()).ok()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn disk_available() -> Option<u64> {
+    None
 }
 
 #[cfg(target_os = "macos")]
@@ -487,6 +516,7 @@ mod tests {
             mem_pressure: Some("normal".into()),
             disk_free: Some(200 * GB as u64),
             disk_total: Some(500 * GB as u64),
+            disk_available: None,
             battery: Some(Battery {
                 pct: 80,
                 charging: false,
@@ -579,5 +609,14 @@ mod tests {
         assert_eq!(uptime_text(3 * 3600 + 120), "3h 2m");
         assert_eq!(uptime_text(2 * 86_400 + 5 * 3600), "2d 5h");
         assert_eq!(pressure_name(4), "critical");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn finder_available_is_at_least_free() {
+        let (free, _) = disk_space().unwrap();
+        let avail = disk_available().unwrap();
+        // allow for a write between the two reads
+        assert!(avail + GB as u64 >= free, "available {avail} < free {free}");
     }
 }

@@ -31,5 +31,10 @@ url = "2"
 # W widgets (sysinfo; its json_status widget shares ureq above)
 sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
 
+# W widgets: Finder's "available" figure (free plus purgeable) has no POSIX call
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSValue", "NSError", "NSObject"] }
+
 [dev-dependencies]
 tempfile = "3"

@@ -6,4 +6,9 @@ export type SystemSample = { at: number, cpuPct: number, cpuCount: number, memUs
 /**
  * macOS memory pressure: "normal", "warn" or "critical"; None where unknown.
  */
-memPressure: string | null, swapUsed: number, diskFree: number | null, diskTotal: number | null, battery: Battery | null, uptimeSecs: number, top: Array<ProcessUse>, };
+memPressure: string | null, swapUsed: number, diskFree: number | null, diskTotal: number | null, 
+/**
+ * What Finder calls available: free space plus purgeable space (iCloud copies that
+ * can be downloaded again, caches, local snapshots) that macOS clears on demand.
+ */
+diskAvailable: number | null, battery: Battery | null, uptimeSecs: number, top: Array<ProcessUse>, };
