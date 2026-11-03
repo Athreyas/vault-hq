@@ -1,14 +1,34 @@
 # Vault HQ
 
-**One place for your second brain.** Vault HQ is a native Mac app over a folder of plain
-markdown that you, your editors and your AI agents all write into. Notes, tasks,
-bookmarks and the day's trail live in that folder as files any tool can read; HQ is
-where you see them, act on them and ask them questions, with models that run on your
-own Mac. Nothing leaves the machine.
+**Your data. Your knowledge. On your terms.**
+
+Vault HQ is your second brain: one place for anything and everything you want to know,
+learn and remember, on your Mac and under your control. Your notes, tasks and bookmarks are plain markdown files in
+folders you choose; the models that search and answer run on your own Mac; there is no
+account, no cloud and no telemetry. Nothing to export, nothing locked in, nothing that
+leaves the machine unless you send it.
+
+Ideas, notes, things you're learning, people and places, links you saved, decisions you
+made, what you did today and what's next: you, your editors and your AI agents all write
+it into the same files, and HQ is where you find it again, act on it and ask it questions.
 
 > Envisioned and architected by **[Athreyas](https://monk97.me)** · built with **[Claude Code](https://claude.com/claude-code)**
 
 ![Home: the day's trail, what needs a decision, and every active project](docs/screenshots/home.png)
+
+## You own it
+
+- **Files you can read.** Every note, task and bookmark is a `.md` file in a folder you
+  chose. Open it in any editor, back it up however you like, grep it, version it, delete
+  it. Uninstall HQ and you lose nothing.
+- **Models you run.** Search and Ask use a local model server (Ollama) on this Mac or your
+  home network; HQ refuses any other address.
+- **No account, no cloud, no telemetry.** There is nothing to sign in to and nobody to
+  report to. To use several Macs, keep the vault in a folder you already sync.
+- **Agents on your terms.** Claude, Cursor or Codex reach the vault only through the
+  connections you approve, under the same safety rules as you.
+- **Safe writes.** Every write locks the file, checks it hasn't changed since it was read,
+  and writes in place, so the app, your agents and your editors never clobber each other.
 
 ## Why
 
@@ -20,8 +40,8 @@ replaces everything around them.
 
 ## What it does
 
-- **Home**: what needs you now, active projects, the day's trail, and widgets you
-  arrange yourself (this Mac's load, task burn rate, a JSON status of your choice…).
+- **Home**: your day at a glance: what needs you, what you captured and learned, things
+  worth remembering resurfacing on their own, and widgets you arrange yourself.
 - **Ask**: a chat with your notes and bookmarks on a local model (Ollama). Answers stream
   in as they are written, cite the notes they used, and every conversation is saved as a
   note.
@@ -49,18 +69,6 @@ replaces everything around them.
 | ![Ctrl K palette](docs/screenshots/palette.png) | ![Settings: the local model server and models](docs/screenshots/settings-ai.png) |
 
 *Screenshots are from 1.0 and a fictional demo vault; 2.0 keeps the same terminal look.*
-
-## Principles
-
-- **Local only.** No account, no telemetry, no sync service. The model server must be on
-  this Mac or your home network; HQ refuses anything else. To use several Macs, keep the
-  vault in a folder you already sync (iCloud Drive, Dropbox).
-- **Markdown is the source of truth.** Every note, task and bookmark is a plain `.md` file.
-  Search vectors and task indexes are caches that can be thrown away.
-- **No plugins, no logins.** Agents connect over MCP or by plain file conventions;
-  browsers are read from their own files after you say yes.
-- **Safe writes.** Every write locks the file, checks it hasn't changed since it was read,
-  and writes in place, so the app, your agents and your editors never clobber each other.
 
 ## Status
 
