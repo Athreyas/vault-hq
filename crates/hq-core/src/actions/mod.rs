@@ -350,6 +350,20 @@ pub fn reconcile(
     r
 }
 
+/// The local date and time: what relative dates are resolved against.
+pub fn now() -> NaiveDateTime {
+    chrono::Local::now().naive_local()
+}
+
+/// Quick answer for text that is clearly not an action, before any vault is read.
+pub fn obviously_not(text: &str, force: bool, now: NaiveDateTime) -> Option<ActionDraft> {
+    let t = text.trim();
+    if force || t.is_empty() {
+        return None;
+    }
+    (t.contains('\n') || detect(t, now).0 == Intent::No).then(|| not_action(t))
+}
+
 /// Default hour for a reminder given a day but no time.
 pub const REMINDER_HOUR: &str = "09:00";
 

@@ -12,12 +12,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
-use hq_core::ollama::{self, CancelToken, Chat, Models};
+use hq_core::actions::{self, DraftCtx};
+use hq_core::ollama::{self, CancelToken, Chat, JsonChat, Models};
 use hq_core::search::{self, ask, conversations, Index, Semantic, TOP_K};
 use hq_core::settings::{self, Settings, Store};
 use hq_core::types::{
-    AskEnvelope, AskEvent, Conversation, ConversationSummary, OllamaStatus, Recommendation,
-    SearchResult, SearchScope,
+    ActionAdded, ActionDraft, AskEnvelope, AskEvent, Conversation, ConversationSummary,
+    OllamaStatus, Recommendation, SearchResult, SearchScope,
 };
 use hq_core::vault::{scan, Vault};
 use hq_core::{util, Error, Result};
@@ -249,4 +250,66 @@ pub fn ollama_recommend() -> Result<Recommendation> {
         Error::Unavailable("macOS did not say how much memory this Mac has.".into())
     })?;
     Ok(ollama::recommend(mem))
+}
+
+/// Read `text` as an action item ("remind me to call the bank Friday 9am") and propose a
+/// task: what, when, where it is filed, related notes. `force` (quick capture's ⌘Enter)
+/// treats any text as one. Writes nothing; `action_add` does, after the user confirms.
+#[tauri::command]
+pub async fn action_draft<R: Runtime>(
+    app: AppHandle<R>,
+    text: String,
+    force: Option<bool>,
+) -> Result<ActionDraft> {
+    let force = force.unwrap_or(false);
+    let now = actions::now();
+    // most Ask questions are not actions: answer those without reading the vaults
+    if let Some(d) = actions::obviously_not(&text, force, now) {
+        return Ok(d);
+    }
+    blocking(move || {
+        let ctx = Ctx::load(&app)?;
+        let index = ctx.index();
+        let models = Models::new(&ctx.settings.ollama).ok();
+        let embedder = models.as_ref().map(Models::embedder);
+        let chat = models.as_ref().map(Models::chat);
+        let semantic = embedder
+            .as_ref()
+            .filter(|_| !ctx.settings.ollama.embed_model.is_empty())
+            .map(|e| Semantic {
+                embedder: e,
+                cache_dir: &ctx.cache,
+            });
+        let model = chat
+            .as_ref()
+            .filter(|_| !ctx.settings.ollama.chat_model.is_empty())
+            .map(|c| c as &dyn JsonChat);
+        actions::draft(
+            &text,
+            force,
+            DraftCtx {
+                index: &index,
+                semantic,
+                model,
+                primary: ctx.primary(),
+                vaults: vec![],
+                now,
+            },
+        )
+    })
+    .await
+}
+
+/// Write a confirmed draft: the task (with its ⏰ time, in the note the user kept or
+/// picked), then a `related: [[…]]` annotation for the links left ticked.
+#[tauri::command]
+pub async fn action_add<R: Runtime>(app: AppHandle<R>, draft: ActionDraft) -> Result<ActionAdded> {
+    let input = actions::to_input(&draft)?;
+    let task = super::tasks::task_add(app.clone(), input).await?;
+    let related = actions::related_annotation(&draft);
+    let task = match &related {
+        Some(text) => super::tasks::task_annotate(app, task.key.clone(), text.clone()).await?,
+        None => task,
+    };
+    Ok(ActionAdded { task, related })
 }
