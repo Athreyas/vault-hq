@@ -11,12 +11,14 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "verify": "npm run typecheck && npm run build",
     "start": "npm run build && node server/index.ts",
-    "demo": "node demo/make-demo.mjs && npm run build && VAULT_PATH=/Users/Shared/hq-demo/demo-vault VAULT_STATE=/Users/Shared/hq-demo/state TASK_BIN=/Users/Shared/hq-demo/task HQ_PORT=4330 HQ_CORE_ONLY=1 node server/index.ts"
+    "demo": "node demo/make-demo.mjs && npm run build && VAULT_PATH=/Users/Shared/hq-demo/demo-vault VAULT_STATE=/Users/Shared/hq-demo/state TASK_BIN=/Users/Shared/hq-demo/task HQ_PORT=4330 HQ_CORE_ONLY=1 node server/index.ts",
+    "test": "vitest run --passWithNoTests"
   },
   "engines": {
     "node": ">=25"
   },
   "dependencies": {
+    "@tauri-apps/api": "2.12.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "zod": "^4.6.7"
@@ -28,7 +30,8 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
     "typescript": "^7.0.2",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "vitest": "4.1.12"
   },
   "license": "MIT"
 }
