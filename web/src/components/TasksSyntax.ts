@@ -387,3 +387,18 @@ export function parseFilter(text: string, today: string): { query: Partial<TaskQ
   if (words.length) q.text = words.join(" ");
   return { query: q, errors };
 }
+
+/**
+ * Display names for projects. A project is keyed by its note's stem ("garden-irrigation");
+ * when a task lives in that note, the note's title ("Garden drip irrigation") is the name.
+ * A `#project/x` with no note of its own keeps its key.
+ */
+export function projectTitles(tasks: Pick<Task, "project" | "note" | "noteTitle">[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const t of tasks) {
+    if (!t.project || out.has(t.project) || !t.noteTitle) continue;
+    const stem = t.note.replace(/^[^:]*:/, "").replace(/^.*\//, "").replace(/\.md$/i, "");
+    if (stem === t.project) out.set(t.project, t.noteTitle);
+  }
+  return out;
+}

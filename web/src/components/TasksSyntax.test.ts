@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Task } from "../bindings/Task.ts";
-import { addDays, parseFilter, parsePriority, parseQuickAdd, patchFrom, resolveDate, resolveRecur, taskToSyntax } from "./TasksSyntax.ts";
+import { addDays, parseFilter, projectTitles, parsePriority, parseQuickAdd, patchFrom, resolveDate, resolveRecur, taskToSyntax } from "./TasksSyntax.ts";
 
 // 2026-11-02 is a Monday
 const TODAY = "2026-11-02";
@@ -161,5 +161,18 @@ describe("filter", () => {
     expect(parseFilter("p:none", TODAY).query.noPriority).toBe(true);
     expect(parseFilter("status:nope due:never", TODAY).errors).toEqual(["status:nope", "due:never"]);
     expect(parseFilter("", TODAY).query).toEqual({});
+  });
+});
+
+describe("projectTitles", () => {
+  it("names a project by its note's title, keeping tag-only projects as they are", () => {
+    const m = projectTitles([
+      { project: "garden-irrigation", note: "v1:01-Projects/garden-irrigation.md", noteTitle: "Garden drip irrigation" },
+      { project: "taxes", note: "v1:09-Planning/Tasks.md", noteTitle: "Tasks" },
+      { project: null, note: "v1:x.md", noteTitle: "X" },
+    ]);
+    expect(m.get("garden-irrigation")).toBe("Garden drip irrigation");
+    expect(m.has("taxes")).toBe(false);
+    expect(m.size).toBe(1);
   });
 });

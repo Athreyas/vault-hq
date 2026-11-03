@@ -119,27 +119,32 @@ pub fn over(all: &[Task], q: &StatsQuery, today: NaiveDate) -> TaskStats {
             .filter(|l| l.status == TaskStatus::Done && l.end.is_some_and(|e| e >= since))
             .count() as u32
     };
-    let completion = |since: NaiveDate| {
-        let made: Vec<&Life> = lives
-            .iter()
-            .filter(|l| l.created.is_some_and(|c| c >= since && c <= today))
-            .collect();
-        if made.is_empty() {
+    let open = lives.iter().filter(|l| l.status.is_open()).count() as u32;
+    // Of the work in play over a period (what got done in it plus what is still open),
+    // the share that got done. Unlike "created in the period", it can never read 0%
+    // while the done count for the same period is above zero.
+    let completion = |done: u32| {
+        let total = done + open;
+        if total == 0 {
             0.0
         } else {
-            let done = made.iter().filter(|l| l.status == TaskStatus::Done).count();
-            round(done as f64 / made.len() as f64)
+            round(done as f64 / total as f64)
         }
     };
     let open_on = |d: NaiveDate| lives.iter().filter(|l| l.open_on(d)).count() as f64;
 
-    let open = lives.iter().filter(|l| l.status.is_open()).count() as u32;
     let overdue = lives
         .iter()
         .filter(|l| l.status.is_open() && l.due.is_some_and(|d| d < today))
         .count() as u32;
     let done_7 = done_since(back(today, 6));
-    let net_per_day = round((open_on(today) - open_on(back(today, 7))) / 7.0);
+    let done_30 = done_since(back(today, 29));
+    // Rates are over the same window as the burn-down they sit next to: done per day,
+    // and the open count's change per day from the start of the window (the day
+    // before `from`) to today, which is created − done − cancelled for dated tasks.
+    let done_window = done_since(from);
+    let burn_rate = round(done_window as f64 / n as f64);
+    let net_per_day = round((open_on(today) - open_on(back(from, 1))) / n as f64);
     let projected_zero = (net_per_day < 0.0 && open > 0).then(|| {
         let days = (open as f64 / -net_per_day).ceil() as u64;
         fmt(today.checked_add_days(Days::new(days)).unwrap_or(today))
@@ -186,10 +191,10 @@ pub fn over(all: &[Task], q: &StatsQuery, today: NaiveDate) -> TaskStats {
         open,
         overdue,
         done_7,
-        done_30: done_since(back(today, 29)),
-        completion_7: completion(back(today, 6)),
-        completion_30: completion(back(today, 29)),
-        burn_rate: round(done_7 as f64 / 7.0),
+        done_30,
+        completion_7: completion(done_7),
+        completion_30: completion(done_30),
+        burn_rate,
         net_per_day,
         projected_zero,
         by_project,
@@ -276,10 +281,11 @@ mod tests {
         assert_eq!(s.overdue, 1);
         assert_eq!(s.done_7, 2);
         assert_eq!(s.done_30, 2);
-        // created in the last 7 days (from the 4th): b, d, e → one done
-        assert!((s.completion_7 - 0.333).abs() < 1e-9);
+        // done in the period (c, d) against that plus still open (a, b, f)
+        assert!((s.completion_7 - 0.4).abs() < 1e-9);
         assert!((s.completion_30 - 0.4).abs() < 1e-9);
-        assert!((s.burn_rate - 0.286).abs() < 1e-9);
+        // two done over the 14-day window
+        assert!((s.burn_rate - 0.143).abs() < 1e-9);
     }
 
     #[test]
@@ -315,10 +321,59 @@ mod tests {
             task("- [x] four ➕ 2026-11-01 ✅ 2026-11-08"),
         ];
         finish(&mut v, today());
-        let s = over(&v, &StatsQuery::default(), today());
-        assert_eq!(s.days.len(), 30);
+        let week = StatsQuery {
+            days: Some(7),
+            ..Default::default()
+        };
+        let s = over(&v, &week, today());
+        assert_eq!(s.days.len(), 7);
+        // five open when the week began (end of the 3rd), one now
         assert!((s.net_per_day - (-4.0 / 7.0)).abs() < 0.001);
         assert_eq!(s.projected_zero.as_deref(), Some("2026-11-12"));
+        // over 30 days the same tasks were all created inside the window: it grew
+        let s = over(&v, &StatsQuery::default(), today());
+        assert!((s.net_per_day - 1.0 / 30.0).abs() < 0.001);
+        assert_eq!(s.projected_zero, None);
         assert_eq!(over(&[], &StatsQuery::default(), today()).open, 0);
+    }
+
+    /// The first real run: everything done 8 to 29 days ago, nothing this week. The
+    /// 30-day numbers must agree with the 30-day burn-down (15 open → 10).
+    #[test]
+    fn rates_follow_the_window_not_the_last_week() {
+        let mut v = Vec::new();
+        for i in 0..10 {
+            v.push(task(&format!("- [ ] open {i} ➕ 2026-09-01")));
+        }
+        for (i, d) in ["10-12", "10-15", "10-18", "10-24", "11-02"]
+            .iter()
+            .enumerate()
+        {
+            v.push(task(&format!("- [x] done {i} ➕ 2026-09-01 ✅ 2026-{d}")));
+        }
+        finish(&mut v, today());
+        let s = over(&v, &StatsQuery::default(), today());
+        assert_eq!(s.from, "2026-10-12");
+        assert_eq!(
+            s.days.first().unwrap().open,
+            14,
+            "one finished on the first day"
+        );
+        assert_eq!(s.days.last().unwrap().open, 10);
+        assert_eq!((s.done_7, s.done_30), (0, 5));
+        assert_eq!(s.days.iter().map(|d| d.done).sum::<u32>(), 5);
+        assert_eq!(s.completion_7, 0.0);
+        assert!((s.completion_30 - 0.333).abs() < 1e-9, "5 of 5 + 10");
+        assert!((s.burn_rate - 0.167).abs() < 1e-9, "5 done / 30 days");
+        // 15 open at the end of the 11th, 10 today: -5 over 30 days
+        assert!((s.net_per_day - (-0.167)).abs() < 1e-9);
+        // 10 left at 1/6 a day: 60 days
+        assert_eq!(s.projected_zero.as_deref(), Some("2027-01-09"));
+
+        let none = over(&[], &StatsQuery::default(), today());
+        assert_eq!(
+            (none.completion_30, none.burn_rate, none.net_per_day),
+            (0.0, 0.0, 0.0)
+        );
     }
 }

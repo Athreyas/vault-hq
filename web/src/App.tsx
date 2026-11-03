@@ -159,6 +159,12 @@ export default function App() {
     };
   }, []);
 
+  // The stage is one scroller shared by every view: a new view starts at its top, not
+  // at the scroll position the previous view left (which hid the Days header).
+  useEffect(() => {
+    document.getElementById("main")?.scrollTo({ top: 0 });
+  }, [route.view]);
+
   // Global keys. Ctrl/⌘K works everywhere, including inside inputs; the single-key
   // shortcuts only fire when no field has focus and no dialog is open.
   useEffect(() => {

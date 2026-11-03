@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Notify } from "../App.tsx";
+import { VIEWS } from "../App.tsx";
 import { api, notBuilt, setTheme, useCall, type AppStatus, type Settings as SettingsData, type Theme } from "../api.ts";
 
 const SECTIONS = [
@@ -140,7 +141,7 @@ export default function Settings({ status, onClose, notify, onChange }: { status
                   show cache (search index, task index)
                 </button>
               </Row>
-              <Row k="keys">⌘K palette · ⌘, settings · 1–7 views · / ask · n new · e edit a note · ⌘S save</Row>
+              <Row k="keys">⌘K palette · ⌘, settings · 1–{VIEWS.length} views · / ask · n new · e edit a note · ⌘S save</Row>
             </dl>
           )}
           {section === "about" && (

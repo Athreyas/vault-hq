@@ -744,12 +744,13 @@ pub struct TaskStats {
     pub overdue: u32,
     pub done_7: u32,
     pub done_30: u32,
-    /// Of the tasks created in the last 7 / 30 days, the share now done (0–1).
+    /// Done in the last 7 / 30 days over (that done + open now): the share of the
+    /// period's work that got done (0–1).
     pub completion_7: f64,
     pub completion_30: f64,
-    /// Done per day, averaged over the last 7 days.
+    /// Done per day, averaged over the window (`from`..`to`).
     pub burn_rate: f64,
-    /// Open tasks grow by this much per day, averaged over the last 7 days.
+    /// Open tasks grow by this much per day over the window (negative: shrinking).
     pub net_per_day: f64,
     /// When the open count reaches zero at the current net rate, if it is falling.
     pub projected_zero: Option<String>,
