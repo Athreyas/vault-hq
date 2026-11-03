@@ -19,6 +19,8 @@ pub struct AskInput<'a> {
     /// `"<vaultId>:<rel>"` of the conversation this follows up, if any.
     pub conversation: Option<&'a str>,
     pub today: &'a str,
+    /// The live task digest (`task_facts::digest`) when the question is about tasks.
+    pub tasks: Option<&'a str>,
 }
 
 /// Where conversations are read from and written to.
@@ -36,7 +38,12 @@ fn system_prompt(today: &str) -> String {
          which describe the past. In checklists, '- [ ]' is still to do and '- [x]' is done. \
          Today is {today}. When excerpts disagree, the one with the most recent date wins; \
          words like 'was', 'replaced' or 'before' mark the older fact. \
-         Cite the note for every fact as [[note-stem]], copied from the excerpt header. \
+         Cite each fact by putting [[note-stem]] (copied from the excerpt header) right \
+         after it, once per note; never write 'According to' or name notes in the prose, \
+         and give a URL only when the user asks for a link. \
+         When a live task list is given, it is the true current state of the user's tasks: \
+         answer any question about tasks, due dates or plans from it (list the tasks, with \
+         their dates and [[note]]), and treat notes that only describe tasks as background. \
          If the excerpts do not answer the question, say plainly that the notes don't say. \
          Answer directly: a short paragraph or a few bullets, no preamble."
     )
@@ -50,6 +57,7 @@ pub fn build_messages(
     question: &str,
     history: &[Turn],
     today: &str,
+    tasks: Option<&str>,
 ) -> Vec<ChatMessage> {
     let context = picked
         .iter()
@@ -86,7 +94,12 @@ pub fn build_messages(
     };
     m.push(ChatMessage::new(
         "user",
-        format!("Excerpts from the vault:\n\n{context}\n\nQuestion: {question}"),
+        match tasks {
+            Some(t) => format!(
+                "{t}\n\n===\n\nExcerpts from the vault:\n\n{context}\n\nQuestion: {question}"
+            ),
+            None => format!("Excerpts from the vault:\n\n{context}\n\nQuestion: {question}"),
+        },
     ));
     m
 }
@@ -226,15 +239,21 @@ fn run(
         Some(prev) => format!("{} {question}", prev.question),
         None => question.to_string(),
     };
-    let ranked = rank(
+    // past answers are not sources: a wrong one would be read back as a fact
+    let mut ranked = rank(
         index,
         &retrieval,
         input.scope,
-        TOP_K,
+        TOP_K * 2,
         semantic,
         input.today,
         Some(cancel),
     )?;
+    let conv = format!("{}/", conversations::FOLDER);
+    ranked
+        .picked
+        .retain(|(i, _)| !index.chunks()[*i].rel.starts_with(&conv));
+    ranked.picked.truncate(TOP_K);
     let sources: Vec<_> = ranked
         .picked
         .iter()
@@ -259,7 +278,14 @@ fn run(
             conversation: input.conversation.map(String::from),
         });
     }
-    let messages = build_messages(index, &ranked.picked, question, history, input.today);
+    let messages = build_messages(
+        index,
+        &ranked.picked,
+        question,
+        history,
+        input.today,
+        input.tasks,
+    );
     let streamed = chat.chat_stream(&messages, cancel, &mut |t| {
         emit(AskEvent::Token {
             text: t.to_string(),
@@ -379,6 +405,7 @@ mod tests {
                 scope: &scope,
                 conversation: None,
                 today: "2026-11-02",
+                tasks: None,
             },
             &vaults,
             None,
@@ -415,6 +442,7 @@ mod tests {
                 scope: &scope,
                 conversation: Some(&id),
                 today: "2026-11-02",
+                tasks: None,
             },
             &vaults,
             None,
@@ -450,6 +478,7 @@ mod tests {
                 scope: &scope,
                 conversation: None,
                 today: "2026-11-02",
+                tasks: None,
             },
             &AskVaults {
                 all: &[],
@@ -483,6 +512,7 @@ mod tests {
                 scope: &scope,
                 conversation: None,
                 today: "2026-11-02",
+                tasks: None,
             },
             &AskVaults {
                 all: &[],
@@ -511,6 +541,7 @@ mod tests {
                 scope: &scope,
                 conversation: Some("nope:06-Memory/conversations/x.md"),
                 today: "2026-11-02",
+                tasks: None,
             },
             &AskVaults {
                 all: &[],

@@ -10,7 +10,7 @@ const ARCHIVE = "08-Archive/";
 // The vaults' notes, read inside HQ: a filterable list on the left, the note on the right
 // with its properties and the notes that link to it.
 export default function Notes({ note, notify }: { note: string | null; notify: Notify }) {
-  const list = useCall(() => api.notes(), "notes", { refreshMs: 60_000 });
+  const list = useCall(() => api.notes({ hideSystem: true }), "notes", { refreshMs: 60_000 });
   const view = useCall<NoteView | null>(() => (note ? api.note(note) : Promise.resolve(null)), note ?? "", { refreshMs: 30_000 });
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<"folder" | "recent">("folder");

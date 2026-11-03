@@ -102,6 +102,11 @@ pub struct NoteFilter {
     pub updated_since: Option<String>,
     #[ts(optional)]
     pub limit: Option<u32>,
+    /// Leave out the vault's agent housekeeping (`AGENTS.md`, `CLAUDE.md`, `06-Memory/`).
+    /// The Notes view sets it; search and agents still see those notes.
+    #[serde(default)]
+    #[ts(optional)]
+    pub hide_system: Option<bool>,
 }
 
 /// One outgoing link of a note and where it resolves (SPEC 3), if anywhere.

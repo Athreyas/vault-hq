@@ -197,6 +197,7 @@ fn run_ask<R: Runtime>(
     let chat: Option<&dyn Chat> = (!ctx.settings.ollama.chat_model.is_empty()).then_some(&chat);
     let scope = scope.unwrap_or_default();
     let today = util::today();
+    let tasks = task_digest(app, question);
     // errors are emitted by `ask` itself
     let _ = ask::ask(
         &index,
@@ -205,6 +206,7 @@ fn run_ask<R: Runtime>(
             scope: &scope,
             conversation: conversation.as_deref(),
             today: &today,
+            tasks: tasks.as_deref(),
         },
         &ask::AskVaults {
             all: &ctx.vaults,
@@ -215,6 +217,20 @@ fn run_ask<R: Runtime>(
         cancel,
         emit,
     );
+}
+
+/// The live task list for a question about tasks; notes alone can't say what is due.
+fn task_digest<R: Runtime>(app: &AppHandle<R>, question: &str) -> Option<String> {
+    if !hq_core::search::task_facts::about_tasks(question) {
+        return None;
+    }
+    let state = app.state::<super::tasks::TasksState>();
+    state.set_vaults(super::tasks::vaults_from(
+        &app.state::<crate::state::Shell>().settings(),
+    ));
+    let all = state.all_tasks().ok()?;
+    let today = hq_core::tasks::resolve_today(None).ok()?;
+    hq_core::search::task_facts::digest(&all, today)
 }
 
 /// True if a running question was found and told to stop.
