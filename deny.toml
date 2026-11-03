@@ -1,0 +1,56 @@
+# cargo-deny: licences, advisories, bans and sources for the whole workspace.
+# Run locally with `cargo deny check`; CI runs the same (SPEC section 14).
+# Vault HQ is MIT, so every dependency has to be compatible with shipping it as MIT:
+# copyleft (GPL/AGPL/LGPL) is never allowed, not even through an exception.
+
+[graph]
+# The app ships only for Apple Silicon Macs; resolve the graph for that target so
+# Windows/Linux-only crates don't decide anything (CI's deny job runs on Linux).
+targets = ["aarch64-apple-darwin"]
+all-features = true
+
+[advisories]
+# Any RustSec advisory (vulnerability, unmaintained, unsound, yanked) fails the check.
+# If one must be accepted, add it here with the reason and a date to revisit.
+version = 2
+yanked = "deny"
+ignore = []
+
+[licenses]
+version = 2
+confidence-threshold = 0.9
+# The list is the policy, not an inventory: a licence nothing uses yet is fine.
+unused-allowed-license = "allow"
+allow = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "MPL-2.0",
+    "CC0-1.0",
+    "0BSD",
+    "BSL-1.0",
+]
+# Not in `allow` means denied; GPL, AGPL and LGPL in any version are never added above.
+
+[licenses.private]
+# The workspace's own crates are `publish = false` and MIT.
+ignore = true
+
+[bans]
+# Tauri pulls several versions of some crates (windows-sys, bitflags, ...); that costs
+# build time, not correctness, so duplicates only warn.
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

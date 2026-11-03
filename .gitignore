@@ -3,3 +3,6 @@ web/dist/
 .DS_Store
 src-tauri/target/
 src-tauri/gen/
+/dist/
+# Personal terms for scripts/privacy-check.sh; never committed.
+.privacy-terms
