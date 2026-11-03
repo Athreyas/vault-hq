@@ -1,7 +1,7 @@
 // Task statistics: headline numbers, burn-down (open and overdue over time), done per day,
 // and breakdowns. Charts are plain SVG; colours come from tokens via Tasks.css classes.
 import { useEffect, useState } from "react";
-import { tasksStats } from "../api/tasks.ts";
+import { onNotesChanged, tasksStats } from "../api/tasks.ts";
 import type { DayStat } from "../bindings/DayStat.ts";
 import type { StatBreakdown } from "../bindings/StatBreakdown.ts";
 import type { TaskStats } from "../bindings/TaskStats.ts";
@@ -174,6 +174,9 @@ export default function TasksStats({ project, tag }: { project: string | null; t
   const [stats, setStats] = useState<TaskStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [asTable, setAsTable] = useState(false);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => onNotesChanged(() => setTick((n) => n + 1)), []);
 
   useEffect(() => {
     let live = true;
@@ -183,7 +186,7 @@ export default function TasksStats({ project, tag }: { project: string | null; t
     return () => {
       live = false;
     };
-  }, [days, project, tag]);
+  }, [days, project, tag, tick]);
 
   if (error) return <p className="empty">Could not read task stats: {error}</p>;
   if (!stats) return <p className="empty">Counting…</p>;

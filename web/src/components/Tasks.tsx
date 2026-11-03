@@ -3,7 +3,7 @@
 // a annotate · enter details · o open note · n add · / filter · g group · v stats · ? help.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Notify } from "../App.tsx";
-import { emptyQuery, taskAdd, taskAnnotate, taskCancel, taskDelete, taskDone, taskStart, tasksQuery, taskUpdate } from "../api/tasks.ts";
+import { emptyQuery, onNotesChanged, taskAdd, taskAnnotate, taskCancel, taskDelete, taskDone, taskStart, tasksQuery, taskUpdate } from "../api/tasks.ts";
 import type { Task } from "../bindings/Task.ts";
 import type { TaskGroupBy } from "../bindings/TaskGroupBy.ts";
 import type { TaskGroups } from "../bindings/TaskGroups.ts";
@@ -87,6 +87,9 @@ export default function Tasks({ notify, onChange, onOpenNote }: Props) {
   const parsedFilter = useMemo(() => parseFilter(filter, today), [filter, today]);
   const quick = useMemo(() => parseQuickAdd(draft, today), [draft, today]);
   const reload = useCallback(() => setTick((n) => n + 1), []);
+
+  // an agent, an editor or a sync changed a note: the engine has re-read it, so ask again
+  useEffect(() => onNotesChanged(reload), [reload]);
 
   useEffect(() => {
     let live = true;
