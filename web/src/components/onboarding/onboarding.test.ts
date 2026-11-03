@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countsLine, OnboardingError, toError, unavailable } from "../../api/onboarding.ts";
+import { countsLine, OnboardingError, taskReportLine, toError, unavailable } from "../../api/onboarding.ts";
 import type { PlanItem } from "../../bindings/PlanItem.ts";
 import { withTicks } from "./ImportAssistant.tsx";
 import { neighbour } from "./Onboarding.tsx";
@@ -53,6 +53,10 @@ describe("helpers", () => {
   it("summarises another stream's import report", () => {
     expect(countsLine({ created: 3, skipped: 1, dryRun: true })).toBe("3 created · 1 skipped");
     expect(countsLine({})).toBe("done");
+  });
+  it("summarises a Taskwarrior import", () => {
+    const r = { dryRun: true, total: 5, pending: 3, waiting: 1, completed: 1, deleted: 2, templates: 0, duplicates: 1, written: 4, targets: [], sample: [], warnings: [] };
+    expect(taskReportLine(r)).toBe("5 tasks: 3 pending, 1 waiting, 1 done · 2 deleted (not imported) · 1 already in the vault · 4 would be written");
   });
   it("sends only the user's ticks", () => {
     const item = (id: string, ticked: boolean): PlanItem => ({

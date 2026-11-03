@@ -13,6 +13,7 @@ import type { LocationSuggestion } from "../bindings/LocationSuggestion.ts";
 import type { OnboardingState } from "../bindings/OnboardingState.ts";
 import type { RestructureReport } from "../bindings/RestructureReport.ts";
 import type { ScaffoldReport } from "../bindings/ScaffoldReport.ts";
+import type { TaskImportReport } from "../bindings/TaskImportReport.ts";
 import type { VaultInfo } from "../bindings/VaultInfo.ts";
 
 export type {
@@ -25,6 +26,7 @@ export type {
   OnboardingState,
   RestructureReport,
   ScaffoldReport,
+  TaskImportReport,
   VaultInfo,
 };
 
@@ -106,7 +108,17 @@ export interface ImportCounts {
   messages?: string[];
   [key: string]: unknown;
 }
-export const tasksImport = (dryRun: boolean) => call<ImportCounts>("tasks_import_taskwarrior", { dryRun });
+/** Stream B's Taskwarrior import into the primary vault; `dryRun` first, then for real. */
+export const tasksImport = (dryRun: boolean) => call<TaskImportReport>("tasks_import_taskwarrior", { dryRun });
+
+/** "12 tasks: 9 pending, 1 waiting, 2 done · 3 already in the vault". */
+export function taskReportLine(r: TaskImportReport): string {
+  const parts = [`${r.total} tasks: ${r.pending} pending, ${r.waiting} waiting, ${r.completed} done`];
+  if (r.deleted) parts.push(`${r.deleted} deleted (not imported)`);
+  if (r.duplicates) parts.push(`${r.duplicates} already in the vault`);
+  parts.push(`${r.written} ${r.dryRun ? "would be written" : "written"}`);
+  return parts.join(" · ");
+}
 
 export interface OllamaStatus {
   url: string;

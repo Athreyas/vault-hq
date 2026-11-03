@@ -16,6 +16,8 @@ import {
   type OllamaStatus,
   type Recommendation,
   settingsUpdate,
+  type TaskImportReport,
+  taskReportLine,
   tasksImport,
   unavailable,
 } from "../../api/onboarding.ts";
@@ -25,11 +27,10 @@ import { Copyable, NotBuilt, Status } from "./parts.tsx";
 
 export function StepTasks() {
   const [mode, setMode] = useState<"fresh" | "taskwarrior">("fresh");
-  const [dry, setDry] = useState<ImportCounts | null>(null);
-  const [done, setDone] = useState<ImportCounts | null>(null);
+  const [dry, setDry] = useState<TaskImportReport | null>(null);
+  const [done, setDone] = useState<TaskImportReport | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [missing, setMissing] = useState(false);
 
   const run = async (dryRun: boolean) => {
     setBusy(true);
@@ -39,8 +40,8 @@ export function StepTasks() {
       if (dryRun) setDry(r);
       else setDone(r);
     } catch (e) {
-      if (unavailable(e)) setMissing(true);
-      else setError(message(e));
+      // the core's own words: "Taskwarrior is not installed", "no vault yet", …
+      setError(message(e));
     } finally {
       setBusy(false);
     }
@@ -66,43 +67,54 @@ export function StepTasks() {
             <b>Import from Taskwarrior</b>
             <br />
             <span className="ob-muted">
-              Reads <code>task export</code>, writes each task into its project's note. Taskwarrior's own data is never
-              touched.
+              Reads <code>task export</code> and writes each task into its project's note in the primary vault.
+              Taskwarrior's own data is never touched.
             </span>
           </span>
         </label>
       </fieldset>
-      {mode === "taskwarrior" &&
-        (missing ? (
-          <NotBuilt what="Taskwarrior import" />
-        ) : (
-          <div className="ob-stack">
-            {!dry && (
-              <div>
-                <button type="button" className="ob-button" disabled={busy} onClick={() => void run(true)}>
-                  {busy ? "reading…" : "dry run: show what would come in"}
+      {mode === "taskwarrior" && (
+        <div className="ob-stack">
+          {!dry && (
+            <div>
+              <button type="button" className="ob-button" disabled={busy} onClick={() => void run(true)}>
+                {busy ? "reading…" : "dry run: show what would come in"}
+              </button>
+            </div>
+          )}
+          {dry && !done && (
+            <>
+              <p>{taskReportLine(dry)}</p>
+              {dry.targets.length > 0 && (
+                <ul className="ob-list">
+                  {dry.targets.slice(0, 12).map((t) => (
+                    <li key={t.note}>
+                      <code>{t.note}</code> {t.tasks} {t.tasks === 1 ? "task" : "tasks"}
+                      {t.create && <span className="ob-muted"> (new note)</span>}
+                    </li>
+                  ))}
+                  {dry.targets.length > 12 && <li className="ob-muted">…and {dry.targets.length - 12} more notes</li>}
+                </ul>
+              )}
+              {dry.sample.length > 0 && <pre className="ob-pre">{dry.sample.slice(0, 8).join("\n")}</pre>}
+              {dry.warnings.map((w, i) => (
+                <p key={i} className="ob-status">
+                  {w}
+                </p>
+              ))}
+              <div className="ob-inline">
+                <button type="button" className="ob-button is-primary" disabled={busy || dry.written === 0} onClick={() => void run(false)}>
+                  {busy ? "importing…" : `import ${dry.written}`}
+                </button>
+                <button type="button" className="ob-link" onClick={() => setDry(null)}>
+                  cancel
                 </button>
               </div>
-            )}
-            {dry && !done && (
-              <>
-                <p>Would import: {countsLine(dry)}</p>
-                {Array.isArray(dry.sample) && dry.sample.length > 0 && (
-                  <pre className="ob-pre">{dry.sample.slice(0, 8).join("\n")}</pre>
-                )}
-                <div className="ob-inline">
-                  <button type="button" className="ob-button is-primary" disabled={busy} onClick={() => void run(false)}>
-                    {busy ? "importing…" : "import them"}
-                  </button>
-                  <button type="button" className="ob-link" onClick={() => setDry(null)}>
-                    cancel
-                  </button>
-                </div>
-              </>
-            )}
-            {done && <Status ok={`Imported: ${countsLine(done)}`} />}
-          </div>
-        ))}
+            </>
+          )}
+          {done && <Status ok={`Imported. ${taskReportLine(done)}.`} />}
+        </div>
+      )}
       <Status error={error} />
     </div>
   );
