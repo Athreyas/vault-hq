@@ -303,8 +303,8 @@ impl Hq {
 
     // ---- capture -----------------------------------------------------------------------------------
 
-    /// Quick capture. Notes land in today's capture note, tasks go through the tasks
-    /// engine (B); bookmarks are refused with Unavailable until stream F is routed in here.
+    /// Quick capture: a note line in today's capture note, a task through the tasks engine
+    /// (B), a lone URL as a bookmark note (F).
     pub fn capture(
         &self,
         text: &str,
@@ -313,14 +313,17 @@ impl Hq {
     ) -> Result<CaptureResult> {
         let v = self.registry().pick(vault)?.clone();
         let r = match capture::classify(text, kind) {
-            CaptureKind::Note => {
-                capture::capture_note(&v, text, &util::today(), &util::now_hhmm())
-            }
+            CaptureKind::Note => capture::capture_note(&v, text, &util::today(), &util::now_hhmm()),
             CaptureKind::Task => self.capture_task(&v, text),
-            CaptureKind::Bookmark => Err(Error::Unavailable(
-                "Saving a link as a bookmark isn't in this build yet. Capture it as a note instead."
-                    .into(),
-            )),
+            // the note is made at once (title = URL); fetching the page's title is the
+            // app's `bookmark_add` job, not the capture box's
+            CaptureKind::Bookmark => {
+                crate::bookmarks::store::add(&v, text, None).map(|(b, _)| CaptureResult {
+                    kind: CaptureKind::Bookmark,
+                    id: b.id,
+                    line: b.url,
+                })
+            }
         }?;
         self.invalidate(Some(&v.id));
         Ok(r)

@@ -16,9 +16,12 @@ pub mod app;
 pub mod home;
 pub mod notes;
 pub mod vaults;
+// B tasks
+pub mod tasks;
 // C search
 pub mod search;
-pub mod tasks;
+// F bookmarks
+pub mod bookmarks;
 
 mod names;
 pub use names::{CAPTURE_WINDOW, COMMANDS};
@@ -77,6 +80,16 @@ macro_rules! hq_commands {
             search::conversation_get,
             search::ollama_status,
             search::ollama_recommend,
+            // F bookmarks
+            bookmarks::browsers_detect,
+            bookmarks::browser_allow,
+            bookmarks::bookmarks_import,
+            bookmarks::bookmarks_query,
+            bookmarks::bookmark_add,
+            bookmarks::bookmarks_enrich,
+            bookmarks::bookmarks_enrich_cancel,
+            bookmarks::memories,
+            bookmarks::memory_dismiss,
         ]
     };
 }

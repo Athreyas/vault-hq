@@ -9,6 +9,7 @@ const BY_VIEW: Record<View, [string, string][]> = {
   inbox: [["Tab", "move between items"]],
   notes: [["f", "filter"], ["↑ ↓ ⏎", "pick"], ["e", "edit"], ["⌘S", "save"], ["r", "folder / recent"], ["o", "show in Finder"]],
   ask: [["⏎", "ask"], ["⇧⏎", "search notes only"]],
+  bookmarks: [["⏎", "save a pasted link"], ["⌘⏎", "save a note"], ["Tab", "move between filters"]],
 };
 
 export default function Hints({ view }: { view: View }) {

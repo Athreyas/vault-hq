@@ -61,6 +61,7 @@ pub const COMMANDS: &[&str] = &[
     "bookmarks_query",
     "bookmark_add",
     "bookmarks_enrich",
+    "bookmarks_enrich_cancel",
     "memories",
     "memory_dismiss",
     // onboarding (E)

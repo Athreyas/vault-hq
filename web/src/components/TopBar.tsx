@@ -12,6 +12,7 @@ const TIPS: Record<View, string> = {
   inbox: "Captures and agent notes to curate",
   notes: "Read and edit any note",
   ask: "Search and ask the vault on a local model",
+  bookmarks: "Every saved link, from your browsers and pasted",
 };
 
 function badge(view: View, c: Counts | null): number {

@@ -254,10 +254,9 @@ fn capture_appends_safely_from_many_writers() {
             .unwrap();
     assert_eq!(t.id, format!("{}:09-Planning/Tasks.md", f.vault));
     assert!(read(&f.root, "09-Planning/Tasks.md").contains("- [ ] buy seeds"));
-    assert!(matches!(
-        f.hq.capture("https://example.com", None, None),
-        Err(Error::Unavailable(_))
-    ));
+    let b = f.hq.capture("https://example.com/a", None, None).unwrap();
+    assert_eq!(b.kind, CaptureKind::Bookmark);
+    assert!(b.id.contains(":10-Bookmarks/"), "{}", b.id);
     assert_eq!(f.hq.inbox().len(), 1);
 }
 

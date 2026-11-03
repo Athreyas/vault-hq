@@ -56,6 +56,7 @@
     "allow-bookmarks-query",
     "allow-bookmark-add",
     "allow-bookmarks-enrich",
+    "allow-bookmarks-enrich-cancel",
     "allow-memories",
     "allow-memory-dismiss",
     "allow-onboarding-state",

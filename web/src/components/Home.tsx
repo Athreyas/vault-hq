@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { addDays, api, cardHref, iso, parseDate, useCall } from "../api.ts";
+import Memories from "./BookmarksMemories.tsx";
 import Problem from "./Problem.tsx";
 import { RichLine } from "./Rich.tsx";
 
@@ -141,6 +142,7 @@ export default function Home({ date, onAsk }: { date: string; onAsk: (q: string,
             )}
           </article>
         ))}
+        {date === today && <Memories />}
       </div>
     </section>
   );
