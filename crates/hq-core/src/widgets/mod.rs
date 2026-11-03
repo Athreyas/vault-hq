@@ -773,11 +773,16 @@ pub fn data(kind: WidgetKind, config: &Map<String, Value>, ctx: &Context) -> Res
             Ok(items) => Ok(inbox(&items, &cfg, today, at)),
             Err(e) => source_err(e),
         },
-        WidgetKind::Memories => Ok(unavailable(
+        // the UI draws stream F's own memories card; this only gives the header a line
+        WidgetKind::Memories => Ok(WidgetData {
             kind,
+            status: WidgetStatus::Ok,
+            summary: "on this day".into(),
             at,
-            "Memories appear once bookmarks are set up.".into(),
-        )),
+            body: WidgetBody::Unavailable {
+                message: "Memories are drawn by the bookmarks view.".into(),
+            },
+        }),
         WidgetKind::JsonStatus => Ok(json::widget(ctx.json, &cfg, at, json::fetch)),
     }
 }
@@ -1014,7 +1019,7 @@ mod tests {
             sources: &NoSources,
             now: chrono::Local::now(),
         };
-        for k in [WidgetKind::Focus, WidgetKind::Inbox, WidgetKind::Memories] {
+        for k in [WidgetKind::Focus, WidgetKind::Inbox] {
             let d = data(k, &Map::new(), &ctx).unwrap();
             assert_eq!(d.status, WidgetStatus::Unknown);
             assert!(matches!(d.body, WidgetBody::Unavailable { .. }));

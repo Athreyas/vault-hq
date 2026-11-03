@@ -5,7 +5,7 @@
 // lands, `start` subscribes to it instead of polling and passes each batch to
 // `vault_changed`, which is also where the `Hq` facade is told to refresh its indexes
 // (tasks, search) before the UI hears about it. The periodic re-index, the hourly
-// bookmark re-scan and widget sampling (SPEC 2) join here as their streams land.
+// bookmark re-scan (F, below) and widget sampling (SPEC 2) join here as their streams land.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -21,6 +21,8 @@ use walkdir::WalkDir;
 use crate::state::Shell;
 
 const POLL: Duration = Duration::from_secs(3);
+/// SPEC 8: allowed browser profiles are re-read hourly.
+const BOOKMARK_RESCAN: Duration = Duration::from_secs(60 * 60);
 
 /// vault-relative path → (modified time in ms, size): enough to notice an edit without
 /// reading any file.
@@ -96,6 +98,7 @@ fn watched(s: &settings::Settings) -> Vec<Vault> {
 }
 
 pub fn start<R: Runtime>(app: AppHandle<R>) {
+    start_bookmark_rescan(app.clone());
     let spawned = thread::Builder::new()
         .name("hq-watch".into())
         .spawn(move || {
@@ -129,6 +132,21 @@ pub fn start<R: Runtime>(app: AppHandle<R>) {
         });
     if let Err(e) = spawned {
         eprintln!("vault-hq: could not start the vault watcher: {e}");
+    }
+}
+
+/// F bookmarks: re-read every browser profile the user allowed, once an hour. The first
+/// pass waits an hour too; the user's own import already ran when they ticked a browser.
+fn start_bookmark_rescan<R: Runtime>(app: AppHandle<R>) {
+    let spawned = thread::Builder::new()
+        .name("hq-bookmarks".into())
+        .spawn(move || loop {
+            thread::sleep(BOOKMARK_RESCAN);
+            let settings = app.state::<Shell>().settings();
+            crate::commands::bookmarks::rescan(&app, &settings);
+        });
+    if let Err(e) = spawned {
+        eprintln!("vault-hq: could not start the bookmark re-scan: {e}");
     }
 }
 

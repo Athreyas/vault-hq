@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, applyTheme, iso, useCall, type AppStatus } from "./api.ts";
 import Ask from "./components/Ask.tsx";
+import Bookmarks from "./components/Bookmarks.tsx";
 import Create, { type CreateKind } from "./components/Create.tsx";
 import Days from "./components/Days.tsx";
 import Hints from "./components/Hints.tsx";
@@ -14,7 +15,7 @@ import Tasks from "./components/Tasks.tsx";
 import TopBar from "./components/TopBar.tsx";
 
 // ---- routes: streams add a view name below and its element in <main> ----
-export const VIEWS = ["home", "needs", "days", "tasks", "inbox", "notes", "ask"] as const;
+export const VIEWS = ["home", "needs", "days", "tasks", "inbox", "notes", "ask", "bookmarks"] as const;
 export type View = (typeof VIEWS)[number];
 export interface Route {
   view: View;
@@ -185,6 +186,9 @@ export default function App() {
         {route.view === "inbox" && <Inbox notify={notify} onChange={changed} />}
         {route.view === "notes" && <Notes note={route.note} notify={notify} />}
         {route.view === "ask" && <Ask req={askReq} suggestions={[]} />}
+        {route.view === "bookmarks" && (
+          <Bookmarks notify={(m, kind) => notify(m, kind === "error" ? "error" : "ok")} onOpenNote={(id) => go(`#/notes/${encodeURIComponent(id)}`)} />
+        )}
         {/* ---- streams: add view elements above this line ---- */}
       </main>
       <Hints view={route.view} />

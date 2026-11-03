@@ -5,6 +5,7 @@ import type { WidgetData } from "../../bindings/WidgetData.ts";
 import type { WidgetInstance } from "../../bindings/WidgetInstance.ts";
 import type { WidgetKind } from "../../bindings/WidgetKind.ts";
 import type { WidgetTask } from "../../bindings/WidgetTask.ts";
+import Memories from "../BookmarksMemories.tsx";
 import { Bars, Meter, Spark } from "./charts.tsx";
 import { ago, bytes, dueLabel, uptime, zoneTime } from "./layout.ts";
 
@@ -25,6 +26,8 @@ export function WidgetBody({ instance, data }: RendererProps) {
   const Custom = custom.get(instance.kind);
   if (Custom) return <Custom instance={instance} data={data} />;
   if (instance.kind === "clock") return <Clock instance={instance} data={data} />;
+  // stream F's card: it fetches its own memories and handles dismissals
+  if (instance.kind === "memories") return <Memories />;
   if (!data) return <p className="w-muted">…</p>;
   const b = data.body;
   switch (b.type) {

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { addDays, api, iso, parseDate, useCall } from "../api.ts";
+import Memories from "./BookmarksMemories.tsx";
 import Problem from "./Problem.tsx";
 import { RichLine } from "./Rich.tsx";
 import { WidgetGrid } from "./widgets/index.ts";
@@ -144,6 +145,7 @@ export default function Home({ date, onAsk }: { date: string; onAsk: (q: string,
             )}
           </article>
         ))}
+        {date === today && <Memories />}
       </div>
     </section>
   );
