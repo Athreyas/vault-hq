@@ -77,6 +77,7 @@ pub const COMMANDS: &[&str] = &[
     "onboarding_scaffold",
     "import_undo",
     // widgets (W)
+    "widgets_catalog",
     "widgets_layout_get",
     "widgets_layout_set",
     "widget_data",

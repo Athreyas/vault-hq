@@ -13,6 +13,7 @@ pub mod bookmarks;
 pub mod onboarding;
 pub mod search;
 pub mod tasks;
+pub mod widgets;
 
 mod names;
 pub use names::{CAPTURE_WINDOW, COMMANDS};
@@ -71,6 +72,11 @@ macro_rules! hq_commands {
             onboarding::import_analyze,
             onboarding::import_apply,
             onboarding::import_undo,
+            // W widgets
+            widgets::widgets_catalog,
+            widgets::widgets_layout_get,
+            widgets::widgets_layout_set,
+            widgets::widget_data,
         ]
     };
 }

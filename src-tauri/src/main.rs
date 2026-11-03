@@ -74,6 +74,10 @@ fn run() {
             app.manage(shell);
             // B tasks: answers from the cached index until the first command scans
             app.manage(commands::tasks::TasksState::new(tasks_cache));
+            // W widgets: sampler, JSON status cache, and the task index as the widgets' source
+            app.manage(commands::widgets::WidgetsState::new(Some(
+                std::sync::Arc::new(commands::widgets::AppSources::new(app.handle().clone())),
+            )));
             // ---- stream A: app.manage(hq_core::hq::Hq::open(...)?) goes here ----
 
             if cfg!(debug_assertions) {
@@ -106,6 +110,7 @@ fn run() {
                 Err(e) => eprintln!("vault-hq: hotkeys in settings: {e}"),
             }
             jobs::start(app.handle().clone());
+            jobs::start_widget_sampler(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| match event {

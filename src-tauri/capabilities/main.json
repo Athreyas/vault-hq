@@ -69,6 +69,7 @@
     "allow-onboarding-locations",
     "allow-onboarding-scaffold",
     "allow-import-undo",
+    "allow-widgets-catalog",
     "allow-widgets-layout-get",
     "allow-widgets-layout-set",
     "allow-widget-data",

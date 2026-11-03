@@ -150,6 +150,19 @@ fn start_bookmark_rescan<R: Runtime>(app: AppHandle<R>) {
     }
 }
 
+/// Widget sampling (SPEC 12): tick the "This Mac" sampler every 5 s for its sparklines.
+/// Without it the widget still samples on demand, just without history between asks.
+pub fn start_widget_sampler<R: Runtime>(app: &AppHandle<R>) {
+    use hq_core::widgets::system;
+    let sampler = app
+        .state::<crate::commands::widgets::WidgetsState>()
+        .sampler();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if let Err(e) = system::spawn(sampler, system::TICK, stop) {
+        eprintln!("vault-hq: could not start widget sampling: {e}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
