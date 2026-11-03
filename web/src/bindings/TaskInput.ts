@@ -13,7 +13,11 @@ project: string | null,
 /**
  * Put it in this note instead (its `## Tasks` section).
  */
-note: string | null, vault: string | null, priority: Priority | null, start: string | null, scheduled: string | null, due: string | null, recur: string | null, depends: Array<string>, 
+note: string | null, vault: string | null, priority: Priority | null, start: string | null, scheduled: string | null, due: string | null, 
+/**
+ * `HH:MM` on the due date; needs `due`.
+ */
+dueTime: string | null, recur: string | null, depends: Array<string>, 
 /**
  * `[>]`: hidden until `scheduled`.
  */

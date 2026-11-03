@@ -127,6 +127,14 @@ fn value_after(kind: FieldKind, s: &str) -> Option<(usize, usize)> {
             }
             10
         }
+        FieldKind::DueTime => {
+            let t = v.get(..5)?;
+            check_time(t)?;
+            if v[5..].starts_with(|c: char| c.is_alphanumeric() || c == ':') {
+                return None;
+            }
+            5
+        }
         FieldKind::Id => id_len(v),
         FieldKind::Depends => {
             let mut len = id_len(v);
@@ -161,6 +169,23 @@ fn value_after(kind: FieldKind, s: &str) -> Option<(usize, usize)> {
         _ => 0,
     };
     (len > 0).then_some((sep, len))
+}
+
+/// `HH:MM`, 24-hour, as HQ writes it after `⏰`.
+pub fn check_time(s: &str) -> Option<(u32, u32)> {
+    let b = s.as_bytes();
+    if b.len() != 5
+        || b[2] != b':'
+        || !s
+            .chars()
+            .enumerate()
+            .all(|(i, c)| i == 2 || c.is_ascii_digit())
+    {
+        return None;
+    }
+    let h: u32 = s[..2].parse().ok()?;
+    let m: u32 = s[3..].parse().ok()?;
+    (h < 24 && m < 60).then_some((h, m))
 }
 
 fn id_len(s: &str) -> usize {
@@ -317,6 +342,7 @@ mod tests {
             ("🛫 2026-01-03", FieldKind::Start, "2026-01-03"),
             ("⏳ 2026-01-04", FieldKind::Scheduled, "2026-01-04"),
             ("📅 2026-01-05", FieldKind::Due, "2026-01-05"),
+            ("⏰ 17:30", FieldKind::DueTime, "17:30"),
             (
                 "🔁 every 2 weeks when done",
                 FieldKind::Recur,
@@ -363,7 +389,7 @@ mod tests {
                 }
             }
         }
-        assert_eq!(n, 2048);
+        assert_eq!(n, 4096);
     }
 
     #[test]
@@ -512,5 +538,30 @@ mod tests {
             ]
         );
         assert_eq!(found[2].line, 13);
+    }
+
+    #[test]
+    fn due_time_round_trips_and_bad_times_stay_text() {
+        let line = "- [ ] Call the bank 📅 2026-11-06 ⏰ 09:00 🆔 abc123";
+        let t = rt(line);
+        assert_eq!(t.get(FieldKind::DueTime), Some("09:00"));
+        assert_eq!(t.description(), "Call the bank");
+        for bad in [
+            "⏰ 24:00",
+            "⏰ 9:00",
+            "⏰ 09:60",
+            "⏰ 09:000",
+            "⏰ 0900",
+            "⏰ 09:00am",
+        ] {
+            let l = format!("- [ ] x {bad}");
+            let t = rt(&l);
+            assert_eq!(t.get(FieldKind::DueTime), None, "{bad}");
+        }
+        let mut t = rt("- [ ] Call 📅 2026-11-06 🆔 abc123");
+        t.set(FieldKind::DueTime, Some("17:05"));
+        assert_eq!(t.print(), "- [ ] Call 📅 2026-11-06 ⏰ 17:05 🆔 abc123");
+        assert_eq!(check_time("23:59"), Some((23, 59)));
+        assert_eq!(check_time("7:00"), None);
     }
 }

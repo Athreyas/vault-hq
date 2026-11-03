@@ -169,7 +169,17 @@ fn by_urgency(a: &Task, b: &Task) -> Ordering {
 pub fn compare(a: &Task, b: &Task, sort: TaskSort) -> Ordering {
     let primary = match sort {
         TaskSort::Urgency => by_urgency(a, b),
-        TaskSort::Due => opt_cmp(a.due.as_deref(), b.due.as_deref()),
+        // a timed task sorts before an untimed one on the same day (that one is "by end of day")
+        TaskSort::Due => opt_cmp(a.due.as_deref(), b.due.as_deref()).then_with(|| {
+            opt_cmp(
+                a.due
+                    .as_ref()
+                    .map(|_| a.due_time.as_deref().unwrap_or("24:00")),
+                b.due
+                    .as_ref()
+                    .map(|_| b.due_time.as_deref().unwrap_or("24:00")),
+            )
+        }),
         TaskSort::Priority => opt_cmp(a.priority, b.priority),
         // newest first
         TaskSort::Created => opt_cmp(

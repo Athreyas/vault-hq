@@ -60,6 +60,7 @@ fn object(props: Value, required: &[&str]) -> Value {
 }
 
 const DATE: &str = "^\\d{4}-\\d{2}-\\d{2}$";
+const TIME: &str = "^([01]\\d|2[0-3]):[0-5]\\d$";
 
 fn vault_prop() -> Value {
     json!({
@@ -319,6 +320,8 @@ pub static TOOLS: &[Tool] = &[
                         "description": "A project note id, or a project name." },
                     "priority": priority_prop(),
                     "due": { "type": "string", "pattern": DATE, "description": "YYYY-MM-DD." },
+                    "due_time": { "type": "string", "pattern": TIME,
+                        "description": "HH:MM, 24-hour local time on the due date (needs due). HQ shows a reminder then." },
                     "scheduled": { "type": "string", "pattern": DATE,
                         "description": "YYYY-MM-DD: the day to start on it." },
                     "tags": tags_prop("Task tags."),
@@ -477,6 +480,26 @@ fn date(field: &str, value: &Option<String>, allow_empty: bool) -> Result<(), Er
     }
 }
 
+/// `HH:MM`, 24-hour; only with a due date to put it on.
+fn time(field: &str, value: &Option<String>, has_day: bool) -> Result<(), Error> {
+    let Some(v) = value else { return Ok(()) };
+    let ok = v.len() == 5
+        && v.as_bytes()[2] == b':'
+        && v[..2].parse::<u32>().is_ok_and(|h| h < 24)
+        && v[3..].parse::<u32>().is_ok_and(|m| m < 60);
+    if !ok {
+        return Err(Error::Invalid(format!(
+            "`{field}` must be a time as HH:MM (24-hour), got \"{v}\""
+        )));
+    }
+    if !has_day {
+        return Err(Error::Invalid(format!(
+            "`{field}` needs `due`, the day it is on"
+        )));
+    }
+    Ok(())
+}
+
 fn limit(field: &str, value: Option<u32>, max: u32) -> Result<(), Error> {
     match value {
         Some(n) if n == 0 || n > max => Err(Error::Invalid(format!(
@@ -628,6 +651,7 @@ pub fn call(b: &dyn Backend, ctx: &Ctx, name: &str, args: Value) -> Result<Value
                 one_line("description", &i.description)?;
                 date("due", &i.due, false)?;
                 date("scheduled", &i.scheduled, false)?;
+                time("due_time", &i.due_time, i.due.is_some())?;
                 tags("tags", &i.tags)?;
                 out(b.add_task(ctx, i))
             }
@@ -734,5 +758,15 @@ mod tests {
             }
             assert!(t.description.len() > 40, "{} explains itself", t.name);
         }
+    }
+
+    #[test]
+    fn due_time_is_checked() {
+        assert!(time("due_time", &Some("17:05".into()), true).is_ok());
+        assert!(time("due_time", &None, false).is_ok());
+        for bad in ["5pm", "24:00", "7:05", "12:60"] {
+            assert!(time("due_time", &Some(bad.into()), true).is_err(), "{bad}");
+        }
+        assert!(time("due_time", &Some("09:00".into()), false).is_err());
     }
 }

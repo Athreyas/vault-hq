@@ -192,6 +192,8 @@ pub struct AddTaskInput {
     pub project: Option<String>,
     pub priority: Option<Priority>,
     pub due: Option<String>,
+    /// `HH:MM` (24-hour, local) on the due date: written as `⏰`, and HQ reminds then.
+    pub due_time: Option<String>,
     pub scheduled: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
@@ -339,6 +341,8 @@ pub struct TaskOut {
     pub priority: Option<Priority>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub due: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub due_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scheduled: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]

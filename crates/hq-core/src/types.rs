@@ -110,6 +110,9 @@ pub struct Task {
     pub start: Option<String>,
     pub scheduled: Option<String>,
     pub due: Option<String>,
+    /// `HH:MM` local time on the due date (`⏰`).
+    #[serde(default)]
+    pub due_time: Option<String>,
     pub done: Option<String>,
     pub cancelled: Option<String>,
     /// The rule after `🔁`, e.g. `every week`.
@@ -223,6 +226,8 @@ pub struct TaskInput {
     pub start: Option<String>,
     pub scheduled: Option<String>,
     pub due: Option<String>,
+    /// `HH:MM` on the due date; needs `due`.
+    pub due_time: Option<String>,
     pub recur: Option<String>,
     pub depends: Vec<String>,
     /// `[>]`: hidden until `scheduled`.
@@ -267,6 +272,10 @@ pub struct TaskPatch {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub due: Option<Option<String>>,
+    /// `HH:MM`; `null` clears it. Clearing `due` clears the time too.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub due_time: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub recur: Option<Option<String>>,
@@ -300,6 +309,8 @@ struct TaskPatchWire {
     #[serde(deserialize_with = "double_option")]
     due: Option<Option<String>>,
     #[serde(deserialize_with = "double_option")]
+    due_time: Option<Option<String>>,
+    #[serde(deserialize_with = "double_option")]
     recur: Option<Option<String>>,
     depends: Option<Vec<String>>,
     note: Option<NoteId>,
@@ -319,6 +330,7 @@ impl<'de> Deserialize<'de> for TaskPatch {
             start: w.start,
             scheduled: w.scheduled,
             due: w.due,
+            due_time: w.due_time,
             recur: w.recur,
             depends: w.depends,
             note: w.note,
@@ -642,6 +654,66 @@ pub struct Recommendation {
     pub chat: Vec<String>,
     /// `ollama pull …` lines for the user to copy; HQ never runs them.
     pub commands: Vec<String>,
+}
+
+/// A task read out of a sentence ("remind me to call the bank Friday 9am"), shown to the
+/// user as an editable card. Nothing is written until they confirm (`action_add`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ActionDraft {
+    /// False: the text is not an action item (a question, a thought); nothing else is set.
+    pub is_action: bool,
+    /// What the user wrote.
+    pub text: String,
+    pub description: String,
+    /// `YYYY-MM-DD`.
+    pub due: Option<String>,
+    /// `HH:MM`, local time.
+    pub due_time: Option<String>,
+    /// The user asked to be reminded.
+    pub reminder: bool,
+    pub priority: Option<Priority>,
+    /// Tags the user wrote (`#tag`) or the model found.
+    pub tags: Vec<String>,
+    /// Tags of the matched notes, offered but not ticked.
+    pub suggested_tags: Vec<String>,
+    /// A project name with no note of its own (written as `#project/<name>`).
+    pub project: Option<String>,
+    /// The note the task is filed in: a matched project note, else the primary vault's
+    /// `09-Planning/Tasks.md` (created on first use).
+    pub note: Option<NoteId>,
+    pub note_title: String,
+    pub vault: Option<String>,
+    /// Notes and bookmarks about the same thing, linked from an annotation.
+    pub related: Vec<RelatedLink>,
+    /// `model` when the local model read it, `rules` when only HQ's own date parser did.
+    pub source: String,
+    /// Where the model and the rules disagreed, or what was assumed.
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedLink {
+    pub id: NoteId,
+    pub stem: String,
+    pub title: String,
+    pub kind: HitKind,
+    pub score: f64,
+    /// Ticked by default (the UI may untick it).
+    pub include: bool,
+}
+
+/// What `action_add` wrote.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionAdded {
+    pub task: Task,
+    /// The `related:` annotation, if one was written.
+    pub related: Option<String>,
 }
 
 // ---- E onboarding -----------------------------------------------------------------------
