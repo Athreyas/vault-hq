@@ -70,9 +70,14 @@ fn run() {
                 Shell::degraded(dirs, &e)
             });
             let keys = shell.settings().hotkeys;
+            let tasks_cache = shell.dirs.cache.clone();
             app.manage(shell);
-            // W widgets: sampler, JSON status cache; task/inbox sources join with stream A
-            app.manage(commands::widgets::WidgetsState::new(None));
+            // B tasks: answers from the cached index until the first command scans
+            app.manage(commands::tasks::TasksState::new(tasks_cache));
+            // W widgets: sampler, JSON status cache, and the task index as the widgets' source
+            app.manage(commands::widgets::WidgetsState::new(Some(
+                std::sync::Arc::new(commands::widgets::AppSources::new(app.handle().clone())),
+            )));
             // ---- stream A: app.manage(hq_core::hq::Hq::open(...)?) goes here ----
 
             if cfg!(debug_assertions) {

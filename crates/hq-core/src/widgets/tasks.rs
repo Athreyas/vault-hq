@@ -54,6 +54,46 @@ pub struct TaskInput {
     pub urgency: f32,
 }
 
+/// A task from the engine (stream B) as the widgets read it. A `[>]` task only stays
+/// waiting while the engine hides it (its `⏳` date is still ahead).
+pub fn from_task(t: &crate::types::Task) -> TaskInput {
+    use crate::types::{Priority, TaskStatus};
+    let state = match t.status {
+        TaskStatus::Pending => TaskState::Open,
+        TaskStatus::Started => TaskState::Started,
+        TaskStatus::Waiting if t.hidden => TaskState::Waiting,
+        TaskStatus::Waiting => TaskState::Open,
+        TaskStatus::Done => TaskState::Done,
+        TaskStatus::Cancelled => TaskState::Cancelled,
+    };
+    let priority = t.priority.map(|p| {
+        match p {
+            Priority::Highest => "highest",
+            Priority::High => "high",
+            Priority::Medium => "medium",
+            Priority::Low => "low",
+            Priority::Lowest => "lowest",
+        }
+        .to_string()
+    });
+    TaskInput {
+        id: t.key.clone(),
+        title: t.description.clone(),
+        state,
+        project: t.project.clone(),
+        tags: t.tags.clone(),
+        priority,
+        due: t.due.clone(),
+        created: t.created.clone(),
+        ended: match t.status {
+            TaskStatus::Done => t.done.clone(),
+            TaskStatus::Cancelled => t.cancelled.clone(),
+            _ => None,
+        },
+        urgency: t.urgency as f32,
+    }
+}
+
 pub fn parse_date(s: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").ok()
 }
@@ -413,6 +453,37 @@ mod tests {
 
         let outdoor = focus(&list, &cfg(json!({"tag": "#outdoor"})), today);
         assert_eq!(outdoor.tasks[0].id, "b");
+    }
+
+    #[test]
+    fn maps_engine_tasks() {
+        use crate::types::{Priority, TaskStatus};
+        let mut task: crate::types::Task = serde_json::from_value(json!({
+            "key": "a1b2c3", "id": "a1b2c3", "vault": "v", "note": "v:x.md", "noteTitle": "x",
+            "line": 3, "status": "waiting", "description": "Lay the line", "tags": ["#garden"],
+            "project": "Garden", "priority": "high", "created": "2026-10-20", "start": null,
+            "scheduled": "2026-11-20", "due": "2026-11-01", "done": null, "cancelled": null,
+            "recur": null, "depends": [], "annotations": [], "blocked": false, "blocking": false,
+            "hidden": true, "urgency": 9.5, "raw": "- [>] Lay the line"
+        }))
+        .unwrap();
+        let i = from_task(&task);
+        assert_eq!(i.state, TaskState::Waiting);
+        assert_eq!(
+            (i.title.as_str(), i.priority.as_deref()),
+            ("Lay the line", Some("high"))
+        );
+        assert_eq!(i.urgency, 9.5);
+        task.hidden = false;
+        assert_eq!(from_task(&task).state, TaskState::Open);
+        task.status = TaskStatus::Done;
+        task.done = Some("2026-11-02".into());
+        task.priority = Some(Priority::Lowest);
+        let i = from_task(&task);
+        assert_eq!(
+            (i.state, i.ended.as_deref()),
+            (TaskState::Done, Some("2026-11-02"))
+        );
     }
 
     #[test]

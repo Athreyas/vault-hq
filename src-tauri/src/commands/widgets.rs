@@ -11,9 +11,34 @@ use hq_core::types::{WidgetCatalogEntry, WidgetData, WidgetKind, WidgetLayout};
 use hq_core::widgets::{self, json::JsonCache, system, Context, NoSources, WidgetSources};
 use hq_core::{Error, Result};
 use serde_json::{Map, Value};
-use tauri::State;
+use tauri::{AppHandle, Manager, Runtime, State};
 
+use crate::commands::tasks::{vaults_from, TasksState};
 use crate::state::Shell;
+
+/// The widgets' window on the vault: the task index stream B keeps. The inbox joins when
+/// stream A lands; until then its widget says it isn't connected.
+pub struct AppSources<R: Runtime> {
+    app: AppHandle<R>,
+}
+
+impl<R: Runtime> AppSources<R> {
+    pub fn new(app: AppHandle<R>) -> Self {
+        AppSources { app }
+    }
+}
+
+impl<R: Runtime> WidgetSources for AppSources<R> {
+    fn tasks(&self) -> Result<Vec<widgets::tasks::TaskInput>> {
+        let state = self.app.state::<TasksState>();
+        state.set_vaults(vaults_from(&self.app.state::<Shell>().settings()));
+        Ok(state
+            .all_tasks()?
+            .iter()
+            .map(widgets::tasks::from_task)
+            .collect())
+    }
+}
 
 pub struct WidgetsState {
     inner: Arc<Inner>,
@@ -26,8 +51,8 @@ struct Inner {
 }
 
 impl WidgetsState {
-    /// `sources` gives the task and inbox widgets their data; `None` until the task engine
-    /// and inbox are wired (stream A's `Hq`), and those widgets say they aren't connected.
+    /// `sources` gives the task and inbox widgets their data (`AppSources` in the app);
+    /// with `None` those widgets say they aren't connected.
     pub fn new(sources: Option<Arc<dyn WidgetSources>>) -> Self {
         WidgetsState {
             inner: Arc::new(Inner {

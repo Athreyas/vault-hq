@@ -72,6 +72,10 @@ pub fn diff(before: &Snapshot, after: &Snapshot) -> Vec<String> {
 
 /// The one place a vault change reaches the UI.
 pub fn vault_changed<R: Runtime>(app: &AppHandle<R>, change: VaultChanged) {
+    // indexes first, so a view that reloads on the event reads the new state
+    if let Some(tasks) = app.try_state::<crate::commands::tasks::TasksState>() {
+        tasks.notes_changed(&change.vault, &change.rels);
+    }
     if let Err(e) = app.emit("vault://changed", change) {
         eprintln!("vault-hq: could not emit vault://changed: {e}");
     }
