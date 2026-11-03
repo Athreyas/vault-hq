@@ -1,5 +1,6 @@
 //! The whole server over an in-memory transport: handshake, catalogue, argument checks,
-//! errors, resources, cancellation and a conflicting write, against a temp vault.
+//! errors, resources, cancellation and a conflicting write, against a temp vault, through
+//! the real core modules (A notes/capture/days, B tasks, C search, F bookmarks).
 
 use std::io::{BufReader, Read, Write};
 use std::path::Path;
@@ -9,6 +10,8 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use hq_core::settings::Settings;
+use hq_core::types::{NoteView, SearchResult, Task, TaskGroups};
 use hq_core::vault::Vault;
 use hq_core::Result;
 use hq_mcp::backend::*;
@@ -195,9 +198,25 @@ fn vault() -> (tempfile::TempDir, Vault) {
     (dir, v)
 }
 
+/// Settings with no models: no test talks to a model server.
+fn offline() -> Settings {
+    let mut s = Settings::default();
+    s.ollama.chat_model = String::new();
+    s.ollama.embed_model = String::new();
+    s
+}
+
+/// The real backend (`Hq` and every core module) on one folder. Its cache lives in a
+/// hidden folder inside the temp vault, which scans skip.
+fn backend_on(dir: &Path) -> CoreBackend {
+    CoreBackend::with_vaults(&[dir.to_path_buf()], offline(), &dir.join(".hq-cache"))
+        .unwrap()
+        .without_page_fetch()
+}
+
 fn core() -> (tempfile::TempDir, Vault, Arc<dyn Backend>) {
     let (d, v) = vault();
-    let b: Arc<dyn Backend> = Arc::new(CoreBackend::new(vec![v.clone()], None));
+    let b: Arc<dyn Backend> = Arc::new(backend_on(d.path()));
     (d, v, b)
 }
 
@@ -466,8 +485,8 @@ fn argument_validation() {
         ),
         (
             "update_task",
-            json!({ "id": "TOOLONG1", "patch": { "status": "done" } }),
-            "6-character",
+            json!({ "id": "a\nb", "patch": { "status": "done" } }),
+            "single line",
         ),
         (
             "update_task",
@@ -480,14 +499,45 @@ fn argument_validation() {
             "patch.due",
         ),
         (
+            "update_task",
+            json!({ "id": "a1b2c3", "patch": { "dueDate": "2026-01-01" } }),
+            "unknown field `dueDate`",
+        ),
+        (
+            "update_task",
+            json!({ "id": "a1b2c3", "patch": { "priority": "urgent" } }),
+            "unknown variant",
+        ),
+        (
+            "update_task",
+            json!({ "patch": { "status": "done" } }),
+            "missing field `id`",
+        ),
+        (
             "list_tasks",
-            json!({ "status": ["open"] }),
+            json!({ "status": ["pending"] }),
+            "unknown field `status` in `arguments`",
+        ),
+        (
+            "list_tasks",
+            json!({ "query": { "status": ["open"] } }),
             "unknown variant",
         ),
         (
             "list_tasks",
-            json!({ "due_before": "2026/01/01" }),
+            json!({ "query": { "due_before": "2026-01-01" } }),
+            "unknown field `due_before` in `query`",
+        ),
+        (
+            "list_tasks",
+            json!({ "query": { "dueTo": "2026/01/01" } }),
             "YYYY-MM-DD",
+        ),
+        ("list_tasks", json!({ "query": "pending" }), "JSON object"),
+        (
+            "list_tasks",
+            json!({ "query": { "limit": 0 } }),
+            "between 1 and 500",
         ),
         (
             "add_bookmark",
@@ -583,8 +633,12 @@ fn read_by_id_and_ref() {
     let id = format!("{}:01-Projects/garden.md", v.id);
     let n = c.ok(1, "read_note", json!({ "id": id }));
     assert_eq!(n["title"], "Garden");
-    assert_eq!(n["props"]["type"], "project");
-    assert!(n["body"].as_str().unwrap().starts_with("\n# Garden"));
+    assert!(n["props"]
+        .as_array()
+        .unwrap()
+        .contains(&json!(["type", "project"])));
+    assert!(n["body"].as_str().unwrap().contains("Drip irrigation"));
+    assert_eq!(n["type"], "project");
     assert_eq!(n["hash"].as_str().unwrap().len(), 64);
     for r in [
         "garden",
@@ -602,13 +656,13 @@ fn read_by_id_and_ref() {
         "read_note",
         json!({ "id": format!("{}:../etc/passwd", v.id) }),
     );
-    assert_eq!(r["structuredContent"]["error"]["kind"], "Denied");
+    assert_eq!(r["isError"], true, "{r}");
     let r = c.call(
         5,
         "read_note",
         json!({ "id": format!("{}:.obsidian/hidden.md", v.id) }),
     );
-    assert_eq!(r["structuredContent"]["error"]["kind"], "Denied");
+    assert_eq!(r["isError"], true, "{r}");
     let r = c.call(
         6,
         "read_note",
@@ -624,9 +678,14 @@ fn search_keywords() {
     let c = Client::init(b);
     let s = c.ok(1, "search", json!({ "query": "irrigation" }));
     let hits = s["hits"].as_array().unwrap();
-    assert_eq!(hits.len(), 2);
+    assert!(!hits.is_empty(), "{s}");
     assert_eq!(hits[0]["id"], format!("{}:01-Projects/garden.md", v.id));
-    assert!(hits[0]["snippet"].as_str().unwrap().contains("irrigation"));
+    assert_eq!(hits[0]["kind"], "note");
+    assert!(hits[0]["excerpt"]
+        .as_str()
+        .unwrap()
+        .to_lowercase()
+        .contains("irrigation"));
     let s = c.ok(2, "search", json!({ "query": "irrigation", "limit": 1 }));
     assert_eq!(s["hits"].as_array().unwrap().len(), 1);
     let s = c.ok(
@@ -652,19 +711,21 @@ fn create_append_and_author() {
     let rel = "00-Inbox/session-garden-plan.md";
     assert_eq!(w["id"], format!("{}:{rel}", v.id));
     let text = read(d.path(), rel);
-    assert!(text.starts_with("---\ntitle: Session: garden plan\ntype: session\n"));
+    assert!(text.starts_with("---\ntitle: "), "{text}");
+    assert!(text.contains("type: session\n"), "{text}");
     assert!(text.contains("author: claude\n"));
-    assert!(text.contains("tags: [garden]\n"));
-    assert!(text.ends_with("---\n\nTalked about hoses.\n"));
+    assert!(text.contains("tags: [garden]\n"), "{text}");
+    assert!(text.ends_with("Talked about hoses.\n"), "{text}");
+    assert_eq!(w["title"], "Session: garden plan");
     assert_eq!(w["hash"], hq_core::locks::sha256(&text));
 
-    // never overwrites
-    let r = c.call(2, "create_note", json!({ "title": "Session: garden plan" }));
-    assert_eq!(r["isError"], true);
-    assert!(r["content"][0]["text"]
-        .as_str()
-        .unwrap()
-        .contains("already exists"));
+    // never overwrites: a taken name gets -2
+    let r = c.ok(2, "create_note", json!({ "title": "Session: garden plan" }));
+    assert_eq!(
+        r["id"],
+        format!("{}:00-Inbox/session-garden-plan-2.md", v.id)
+    );
+    assert_eq!(read(d.path(), rel), text);
     // not into hidden folders or templates
     let r = c.call(
         3,
@@ -760,9 +821,16 @@ fn capture_and_log() {
     assert_eq!(cap["id"], format!("{}:{rel}", v.id));
     c.ok(2, "capture", json!({ "text": "second" }));
     let text = read(d.path(), &rel);
-    assert!(text.starts_with("---\ntitle: Capture "));
-    assert!(text.contains("type: capture\n") && text.contains("author: claude\n"));
-    assert!(text.contains(" claude · Try mulch\n  under the beds\n- "));
+    // A's capture note, with each agent line signed
+    assert!(
+        text.starts_with(&format!("---\ntitle: {today} capture\n")),
+        "{text}"
+    );
+    assert!(text.contains("type: capture\n"));
+    assert!(
+        text.contains(" claude · Try mulch under the beds\n- "),
+        "{text}"
+    );
     assert!(text.ends_with(" claude · second\n"));
 
     let l = c.ok(3, "log", json!({ "text": "filed one capture" }));
@@ -771,12 +839,13 @@ fn capture_and_log() {
     assert_eq!(l["id"], format!("{}:{rel}", v.id));
     let text = read(d.path(), &rel);
     assert!(text.contains("type: daily\n"));
+    // A's daily note; the lines go at the end of its Agent log section
     let log = text.split("## Agent log\n").nth(1).unwrap();
-    let lines: Vec<&str> = log.lines().collect();
+    let lines: Vec<&str> = log.lines().filter(|l| l.contains(" · ")).collect();
     assert_eq!(lines.len(), 2, "{text}");
     assert!(lines[0].ends_with(" claude · filed one capture"));
     assert!(lines[1].ends_with(" claude · and another"));
-    assert!(text.contains("## Tomorrow\n\n## Agent log"));
+    assert!(text.trim_end().ends_with(" claude · and another"), "{text}");
     c.close();
 }
 
@@ -805,32 +874,177 @@ fn log_into_an_existing_daily_note() {
 }
 
 #[test]
-fn unwired_tools_say_unavailable() {
-    let (_d, _v, b) = core();
+fn tasks_through_the_engine() {
+    let (d, v, b) = core();
     let c = Client::init(b);
-    for (tool, args) in [
-        ("ask", json!({ "question": "what about the garden?" })),
-        ("add_task", json!({ "description": "water" })),
-        (
-            "update_task",
-            json!({ "id": "a1b2c3", "patch": { "status": "done" } }),
-        ),
-        ("list_tasks", json!({})),
-        ("add_bookmark", json!({ "url": "https://example.com/a" })),
-    ] {
-        let r = c.call(1, tool, args);
-        assert_eq!(r["isError"], true, "{tool}");
-        assert_eq!(
-            r["structuredContent"]["error"]["kind"], "Unavailable",
-            "{tool}"
-        );
+    let garden = format!("{}:01-Projects/garden.md", v.id);
+
+    // the integrator's call, and the bare one: open tasks
+    for args in [json!({ "query": { "status": ["pending"] } }), json!({})] {
+        let l = c.ok(1, "list_tasks", args);
+        assert_eq!(l["total"], 1, "{l}");
+        let t = &l["groups"][0]["tasks"][0];
+        assert_eq!(t["description"], "lay the line");
+        assert_eq!(t["note"], garden);
+        assert_eq!(t["project"], "garden");
     }
+    let l = c.ok(2, "list_tasks", json!({ "query": { "status": ["done"] } }));
+    assert_eq!(l["total"], 0);
+
+    // a line without 🆔 is addressed by its content key; the first edit gives it one
+    let key = c.ok(3, "list_tasks", json!({}))["groups"][0]["tasks"][0]["key"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let t = c.ok(
+        4,
+        "update_task",
+        json!({ "id": key, "patch": { "priority": "high" } }),
+    );
+    let id = t["id"].as_str().unwrap().to_string();
+    assert_eq!(id.len(), 6);
+    assert_eq!(t["key"], id);
+    assert!(read(d.path(), "01-Projects/garden.md").contains("- [ ] lay the line ⏫ ➕ "));
+
+    // add into the project note, then start, annotate, clear and finish it
+    let a = c.ok(
+        5,
+        "add_task",
+        json!({ "description": "water the beds", "project": "garden", "due": "2026-11-10",
+                "priority": "medium", "tags": ["outdoor"] }),
+    );
+    let new = a["key"].as_str().unwrap().to_string();
+    assert_eq!(a["note"], garden);
+    assert_eq!(a["due"], "2026-11-10");
+    let text = read(d.path(), "01-Projects/garden.md");
+    let line = text.lines().find(|l| l.contains("water the beds")).unwrap();
+    assert!(line.starts_with("- [ ] water the beds"), "{line}");
+    assert!(line.contains("#outdoor") && line.contains("🔼") && line.contains("📅 2026-11-10"));
+    assert!(line.contains(&format!("🆔 {new}")));
+
+    let t = c.ok(6, "update_task", json!({ "id": new, "patch": { "status": "started", "annotate": "hose in the shed", "due": "" } }));
+    assert_eq!(t["status"], "started");
+    assert!(t["due"].is_null(), "{t}");
+    assert_eq!(t["annotations"][0]["text"], "hose in the shed");
+    let t = c.ok(
+        7,
+        "update_task",
+        json!({ "id": new, "patch": { "status": "done" } }),
+    );
+    assert_eq!(t["status"], "done");
+    assert!(t["done"].is_string());
+    let text = read(d.path(), "01-Projects/garden.md");
+    assert!(text.contains("- [x] water the beds"), "{text}");
+    assert!(text.contains("    - hose in the shed ("), "{text}");
+
+    // a loose task goes to 09-Planning/Tasks.md
+    let l = c.ok(8, "add_task", json!({ "description": "call the plumber" }));
+    assert_eq!(l["note"], format!("{}:09-Planning/Tasks.md", v.id));
+
+    let r = c.call(
+        9,
+        "update_task",
+        json!({ "id": "zzzzzz", "patch": { "status": "done" } }),
+    );
+    assert_eq!(r["isError"], true, "{r}");
+    // never deleted: cancelling keeps the line
+    c.ok(
+        10,
+        "update_task",
+        json!({ "id": id, "patch": { "status": "cancelled" } }),
+    );
+    assert!(read(d.path(), "01-Projects/garden.md").contains("- [-] lay the line"));
     c.close();
 }
 
 #[test]
+fn bookmarks_through_the_store() {
+    let (d, v, b) = core();
+    let c = Client::init(b);
+    let r = c.ok(
+        1,
+        "add_bookmark",
+        json!({ "url": "https://example.com/garden-irrigation", "note": "for the drip line" }),
+    );
+    assert_eq!(r["created"], true);
+    let id = r["bookmark"]["id"].as_str().unwrap().to_string();
+    let (vid, rel) = id.split_once(':').unwrap();
+    assert_eq!(vid, v.id);
+    assert!(rel.starts_with("10-Bookmarks/"), "{rel}");
+    let text = read(d.path(), rel);
+    assert!(
+        text.contains("type: bookmark\n") && text.contains("author: claude\n"),
+        "{text}"
+    );
+    assert!(text.contains("url: https://example.com/garden-irrigation"));
+    assert!(text.contains("for the drip line"));
+    // the same URL again (normalized) is the same note
+    let again = c.ok(
+        2,
+        "add_bookmark",
+        json!({ "url": "https://EXAMPLE.com/garden-irrigation#top" }),
+    );
+    assert_eq!(again["created"], false);
+    assert_eq!(again["bookmark"]["id"], id);
+    // and search finds it as a bookmark
+    let s = c.ok(
+        3,
+        "search",
+        json!({ "query": "example.com garden irrigation", "scope": { "kind": "bookmarks" } }),
+    );
+    assert_eq!(s["hits"][0]["id"], id, "{s}");
+    c.close();
+}
+
+#[test]
+fn ask_without_a_model_says_so() {
+    let (_d, _v, b) = core();
+    let c = Client::init(b);
+    let r = c.call(1, "ask", json!({ "question": "what about the garden?" }));
+    assert_eq!(r["isError"], true);
+    assert_eq!(
+        r["structuredContent"]["error"]["kind"], "Unavailable",
+        "{r}"
+    );
+    assert!(r["content"][0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("chat model"));
+    c.close();
+}
+
+#[test]
+fn ask_refuses_a_remote_model_server() {
+    let (d, _v) = vault();
+    let mut s = offline();
+    s.ollama.url = "http://203.0.113.9:11434".into();
+    s.ollama.chat_model = "some-model".into();
+    let b = CoreBackend::with_vaults(&[d.path().to_path_buf()], s, &d.path().join(".hq-cache"))
+        .unwrap();
+    let c = Client::init(Arc::new(b));
+    let r = c.call(1, "ask", json!({ "question": "anything here?" }));
+    assert_eq!(r["isError"], true);
+    assert_ne!(r["structuredContent"]["error"]["kind"], "Internal", "{r}");
+    c.close();
+}
+
+#[test]
+fn blocked_vaults_are_refused() {
+    let parent = tempfile::tempdir().unwrap();
+    let dir = parent.path().join("work-vault");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut s = offline();
+    s.blocked_vault_names = vec!["work-vault".into()];
+    let r = CoreBackend::with_vaults(std::slice::from_ref(&dir), s, &parent.path().join("cache"));
+    assert!(matches!(r, Err(hq_core::Error::Denied(_))));
+    assert!(!dir.join(".vault-hq").exists(), "nothing written inside");
+}
+
+#[test]
 fn no_vault_configured() {
-    let b: Arc<dyn Backend> = Arc::new(CoreBackend::new(vec![], None));
+    let cache = tempfile::tempdir().unwrap();
+    let b: Arc<dyn Backend> =
+        Arc::new(CoreBackend::with_vaults(&[], offline(), cache.path()).unwrap());
     let c = Client::init(b);
     let r = c.call(1, "capture", json!({ "text": "x" }));
     assert_eq!(r["structuredContent"]["error"]["kind"], "Unavailable");
@@ -908,19 +1122,21 @@ impl Backend for SlowAsk {
         }
         Ok(AskOutput {
             answer: "too late".into(),
+            model: "none".into(),
             sources: vec![],
+            semantic: false,
         })
     }
-    fn search(&self, c: &Ctx, i: SearchInput) -> Result<SearchOutput> {
+    fn search(&self, c: &Ctx, i: SearchInput) -> Result<SearchResult> {
         self.inner.search(c, i)
     }
-    fn read_note(&self, c: &Ctx, i: ReadNoteInput) -> Result<NoteOut> {
+    fn read_note(&self, c: &Ctx, i: ReadNoteInput) -> Result<NoteView> {
         self.inner.read_note(c, i)
     }
     fn list_notes(&self, c: &Ctx, i: ListNotesInput) -> Result<ListNotesOutput> {
         self.inner.list_notes(c, i)
     }
-    fn create_note(&self, c: &Ctx, i: CreateNoteInput) -> Result<WriteOutput> {
+    fn create_note(&self, c: &Ctx, i: CreateNoteInput) -> Result<NoteView> {
         self.inner.create_note(c, i)
     }
     fn append_to_note(&self, c: &Ctx, i: AppendInput) -> Result<WriteOutput> {
@@ -929,16 +1145,16 @@ impl Backend for SlowAsk {
     fn capture(&self, c: &Ctx, i: CaptureInput) -> Result<LineOutput> {
         self.inner.capture(c, i)
     }
-    fn add_task(&self, c: &Ctx, i: AddTaskInput) -> Result<TaskOut> {
+    fn add_task(&self, c: &Ctx, i: AddTaskInput) -> Result<Task> {
         self.inner.add_task(c, i)
     }
-    fn update_task(&self, c: &Ctx, i: UpdateTaskInput) -> Result<TaskOut> {
+    fn update_task(&self, c: &Ctx, i: UpdateTaskInput) -> Result<Task> {
         self.inner.update_task(c, i)
     }
-    fn list_tasks(&self, c: &Ctx, i: ListTasksInput) -> Result<ListTasksOutput> {
+    fn list_tasks(&self, c: &Ctx, i: ListTasksInput) -> Result<TaskGroups> {
         self.inner.list_tasks(c, i)
     }
-    fn add_bookmark(&self, c: &Ctx, i: AddBookmarkInput) -> Result<BookmarkOut> {
+    fn add_bookmark(&self, c: &Ctx, i: AddBookmarkInput) -> Result<BookmarkOutput> {
         self.inner.add_bookmark(c, i)
     }
     fn log(&self, c: &Ctx, i: LogInput) -> Result<LineOutput> {
@@ -965,7 +1181,7 @@ fn slow() -> (
     let (tx, rx) = channel();
     let saw = Arc::new(AtomicBool::new(false));
     let b: Arc<dyn Backend> = Arc::new(SlowAsk {
-        inner: CoreBackend::new(vec![v], None),
+        inner: backend_on(&v.root),
         started: std::sync::Mutex::new(tx),
         saw_cancel: saw.clone(),
     });

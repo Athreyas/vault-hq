@@ -8,7 +8,6 @@
 
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -17,6 +16,7 @@ use serde_json::{json, Value};
 
 use crate::backend::{Backend, Ctx};
 use crate::tools::{self, CallError};
+use hq_core::ollama::CancelToken;
 use hq_core::Error;
 
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -52,7 +52,7 @@ fn id_key(id: &Value) -> String {
 struct Session {
     /// Set by `initialize`; `None` until then.
     client: Option<String>,
-    in_flight: HashMap<String, Arc<AtomicBool>>,
+    in_flight: HashMap<String, CancelToken>,
 }
 
 pub struct Server {
@@ -184,7 +184,7 @@ impl Server {
             std::thread::sleep(Duration::from_millis(10));
         }
         for flag in lock(&self.session).in_flight.values() {
-            flag.store(true, Ordering::SeqCst);
+            flag.cancel();
         }
         for w in self.workers.drain(..) {
             let _ = w.join();
@@ -259,7 +259,7 @@ impl Server {
             "notifications/cancelled" => {
                 if let Some(rid) = params.get("requestId") {
                     if let Some(flag) = lock(&self.session).in_flight.get(&id_key(rid)) {
-                        flag.store(true, Ordering::SeqCst);
+                        flag.cancel();
                         eprintln!(
                             "vault-hq mcp: request {rid} cancelled: {}",
                             params
@@ -401,7 +401,7 @@ impl Server {
         }
         let args = params.get("arguments").cloned().unwrap_or(Value::Null);
         let key = id_key(&id);
-        let flag = Arc::new(AtomicBool::new(false));
+        let flag = CancelToken::new();
         {
             let mut s = lock(&self.session);
             if s.in_flight.contains_key(&key) {
@@ -432,7 +432,7 @@ impl Server {
             // remove first, so a reused id after this reply is not refused
             lock(&session).in_flight.remove(&key);
             // the spec asks receivers not to answer a cancelled request
-            if !flag.load(Ordering::SeqCst) {
+            if !flag.is_cancelled() {
                 send(&out, &reply);
             }
         });

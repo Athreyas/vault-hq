@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use hq_core::vault::Vault;
+use hq_core::settings::Settings;
 use hq_mcp::{serve, CoreBackend};
 
 fn seed(root: &std::path::Path) -> std::io::Result<()> {
@@ -59,14 +59,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             temp.path().to_path_buf()
         }
     };
-    let vault = Vault::open(&root)?;
-    eprintln!(
-        "demo_server: serving vault {} ({}) at {}",
-        vault.name,
-        vault.id,
-        root.display()
-    );
-    let backend = CoreBackend::new(vec![vault], None);
+    let cache = tempfile::tempdir()?;
+    // default settings: Ask and semantic search use a local Ollama if one is running
+    let backend = CoreBackend::with_vaults(
+        std::slice::from_ref(&root),
+        Settings::default(),
+        cache.path(),
+    )?;
+    for v in backend.hq().vaults() {
+        eprintln!(
+            "demo_server: serving vault {} ({}) at {}",
+            v.name, v.id, v.path
+        );
+    }
     let stdin = std::io::stdin();
     serve(Arc::new(backend), stdin.lock(), Box::new(std::io::stdout()));
     Ok(())
