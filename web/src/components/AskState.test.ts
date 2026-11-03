@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AskEnvelope } from "../bindings/AskEnvelope.ts";
-import { applyEvent, fromConversation, newTurn, scopeLabel } from "./AskState.ts";
+import { applyEvent, draftReady, fromConversation, newTurn, scopeLabel, whenLabel } from "./AskState.ts";
 
 const hit = {
   id: "v:01-Projects/garden.md",
@@ -59,5 +59,37 @@ describe("conversations and scope", () => {
   it("labels scopes", () => {
     expect(scopeLabel({ vaults: [], kinds: "both" })).toBe("notes + bookmarks · all time");
     expect(scopeLabel({ vaults: ["abc123def"], kinds: "notes", days: 7 }, new Map([["abc123def", "home"]]))).toBe("notes · 7 days · home");
+  });
+});
+
+describe("action cards", () => {
+  const draft = {
+    isAction: true,
+    text: "remind me to call the bank Friday 9am",
+    description: "Call the bank",
+    due: "2026-11-06",
+    dueTime: "09:00",
+    reminder: true,
+    priority: null,
+    tags: [],
+    suggestedTags: [],
+    project: null,
+    note: "v:09-Planning/Tasks.md",
+    noteTitle: "Tasks",
+    vault: "v",
+    related: [],
+    source: "rules",
+    notes: [],
+  };
+
+  it("refuses an empty task or a time without a day", () => {
+    expect(draftReady(draft)).toBeNull();
+    expect(draftReady({ ...draft, description: " " })).toMatch(/description/);
+    expect(draftReady({ ...draft, due: null })).toMatch(/day/);
+  });
+
+  it("labels the day and time", () => {
+    expect(whenLabel("2026-11-06", "09:00")).toMatch(/11-06 09:00$/);
+    expect(whenLabel(null, null)).toBe("no date");
   });
 });

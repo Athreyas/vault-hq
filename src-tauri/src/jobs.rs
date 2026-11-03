@@ -79,6 +79,93 @@ fn start_bookmark_rescan<R: Runtime>(app: AppHandle<R>) {
     }
 }
 
+/// C reminders: how often timed tasks (`⏰`) are checked.
+const REMINDER_TICK: Duration = Duration::from_secs(30);
+/// What a click on a reminder tells the UI: open the Tasks view on this task.
+pub const OPEN_TASK_EVENT: &str = "tasks://open";
+
+/// C reminders: every 30 s, a macOS notification for each open task whose ⏰ time has come,
+/// once per task and time (remembered in `reminders.json`). Clicking it brings HQ forward
+/// on that task. Permission is asked for the first time a timed task exists.
+pub fn start_reminders<R: Runtime>(app: AppHandle<R>) {
+    use hq_core::reminders::Store;
+    use tauri_plugin_notification::NotificationExt;
+
+    let handle = app.clone();
+    let registered = app.notification().on_action(move |a| {
+        if a.action_id() != "tap" {
+            return;
+        }
+        let key = a
+            .notification()
+            .and_then(|n| n.extra().get("task"))
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        crate::windows::show_main(&handle);
+        if let Err(e) = handle.emit(OPEN_TASK_EVENT, key) {
+            eprintln!("vault-hq: could not open the task: {e}");
+        }
+    });
+    if let Err(e) = registered {
+        eprintln!("vault-hq: reminder clicks will not open HQ: {e}");
+    }
+    let spawned = thread::Builder::new()
+        .name("hq-reminders".into())
+        .spawn(move || {
+            let store = Store::new(app.state::<Shell>().hq.support_dir());
+            let mut fired = store.load();
+            loop {
+                reminder_tick(&app, &store, &mut fired);
+                thread::sleep(REMINDER_TICK);
+            }
+        });
+    if let Err(e) = spawned {
+        eprintln!("vault-hq: could not start reminders: {e}");
+    }
+}
+
+fn reminder_tick<R: Runtime>(
+    app: &AppHandle<R>,
+    store: &hq_core::reminders::Store,
+    fired: &mut hq_core::reminders::Fired,
+) {
+    use hq_core::reminders;
+    use tauri_plugin_notification::NotificationExt;
+
+    let settings = app.state::<Shell>().settings();
+    let tasks = app.state::<crate::commands::tasks::TasksState>();
+    tasks.set_vaults(crate::commands::tasks::vaults_from(&settings));
+    // no vault open yet, or the index is busy: try again next tick
+    let Ok(all) = tasks.all_tasks() else { return };
+    let before = fired.clone();
+    if !fired.asked && reminders::timed(&all).next().is_some() {
+        // macOS asks the user itself on the first notification; this records that we did
+        if let Err(e) = app.notification().request_permission() {
+            eprintln!("vault-hq: notification permission: {e}");
+        }
+        fired.asked = true;
+    }
+    let now = hq_core::actions::now();
+    for t in reminders::due_now(&all, now, fired) {
+        let (title, body) = reminders::message(t);
+        let shown = app
+            .notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .extra("task", t.key.clone())
+            .show();
+        if let Err(e) = shown {
+            eprintln!("vault-hq: could not show a reminder: {e}");
+        }
+    }
+    if *fired != before {
+        if let Err(e) = store.save(fired) {
+            eprintln!("vault-hq: could not save reminders.json: {e}");
+        }
+    }
+}
+
 /// Widget sampling (SPEC 12): tick the "This Mac" sampler every 5 s for its sparklines.
 /// Without it the widget still samples on demand, just without history between asks.
 pub fn start_widget_sampler<R: Runtime>(app: &AppHandle<R>) {

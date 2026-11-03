@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Task } from "../bindings/Task.ts";
-import { addDays, parseFilter, projectTitles, parsePriority, parseQuickAdd, patchFrom, resolveDate, resolveRecur, taskToSyntax } from "./TasksSyntax.ts";
+import { addDays, parseFilter, projectTitles, parsePriority, parseQuickAdd, patchFrom, resolveDate, resolveRecur, resolveTime, taskToSyntax } from "./TasksSyntax.ts";
 
 // 2026-11-02 is a Monday
 const TODAY = "2026-11-02";
@@ -22,6 +22,7 @@ function task(over: Partial<Task> = {}): Task {
     start: null,
     scheduled: null,
     due: null,
+    dueTime: null,
     done: null,
     cancelled: null,
     recur: null,
@@ -161,6 +162,25 @@ describe("filter", () => {
     expect(parseFilter("p:none", TODAY).query.noPriority).toBe(true);
     expect(parseFilter("status:nope due:never", TODAY).errors).toEqual(["status:nope", "due:never"]);
     expect(parseFilter("", TODAY).query).toEqual({});
+  });
+});
+
+describe("due time", () => {
+  it("reads at: times and writes them back", () => {
+    expect(resolveTime("17:00")).toBe("17:00");
+    expect(resolveTime("9:05")).toBe("09:05");
+    expect(resolveTime("5pm")).toBe("17:00");
+    expect(resolveTime("12am")).toBe("00:00");
+    expect(resolveTime("5")).toBeNull();
+    expect(resolveTime("24:00")).toBeNull();
+    const q = parseQuickAdd("Call the bank due:fri at:9am", TODAY);
+    expect(q.input.due).toBe("2026-11-06");
+    expect(q.input.dueTime).toBe("09:00");
+    expect(q.errors).toEqual([]);
+    expect(parseQuickAdd("Call at:9am", TODAY).errors).toHaveLength(1);
+    const t = task({ due: "2026-11-06", dueTime: "09:00" });
+    expect(taskToSyntax(t)).toContain("due:2026-11-06 at:09:00");
+    expect(patchFrom(t, parseQuickAdd("Fix the gate #home due:2026-11-06 at:17:30", TODAY))).toEqual({ dueTime: "17:30" });
   });
 });
 

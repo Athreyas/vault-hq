@@ -25,6 +25,9 @@ pub struct Chunk {
     pub dates: Vec<String>,
     pub kind: HitKind,
     pub tokens: Vec<String>,
+    /// The note's frontmatter `tags` and `type`, for filing tasks and suggesting tags.
+    pub tags: Vec<String>,
+    pub note_type: Option<String>,
 }
 
 impl Chunk {
@@ -188,6 +191,12 @@ fn push(
         dates: dates.to_vec(),
         kind,
         tokens,
+        tags: note
+            .props
+            .get("tags")
+            .map(|t| crate::frontmatter::list(t))
+            .unwrap_or_default(),
+        note_type: note.props.get("type").cloned(),
     });
 }
 

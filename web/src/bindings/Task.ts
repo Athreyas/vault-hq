@@ -19,7 +19,11 @@ line: number, status: TaskStatus,
 /**
  * The text without tags or fields.
  */
-description: string, tags: Array<string>, project: string | null, priority: Priority | null, created: string | null, start: string | null, scheduled: string | null, due: string | null, done: string | null, cancelled: string | null, 
+description: string, tags: Array<string>, project: string | null, priority: Priority | null, created: string | null, start: string | null, scheduled: string | null, due: string | null, 
+/**
+ * `HH:MM` local time on the due date (`⏰`).
+ */
+dueTime: string | null, done: string | null, cancelled: string | null, 
 /**
  * The rule after `🔁`, e.g. `every week`.
  */

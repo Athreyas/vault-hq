@@ -262,6 +262,23 @@ fn check_ids(ids: &[String]) -> Result<Vec<String>> {
         .collect()
 }
 
+/// `HH:MM` from the UI or an agent (also `9:05`), written as two-digit `HH:MM`.
+pub fn check_time(s: &str) -> Result<String> {
+    let s = s.trim();
+    let padded = if s.len() == 4 && s.as_bytes().get(1) == Some(&b':') {
+        format!("0{s}")
+    } else {
+        s.to_string()
+    };
+    parse::check_time(&padded)
+        .map(|(h, m)| format!("{h:02}:{m:02}"))
+        .ok_or_else(|| {
+            Error::Invalid(format!(
+                "The time \"{s}\" is not a time; use HH:MM (24-hour)."
+            ))
+        })
+}
+
 fn check_recur(r: &str) -> Result<String> {
     let r = one_line("repeat rule", r)?;
     parse_rule(&r)?;
@@ -300,6 +317,14 @@ pub fn render_new(
         if let Some(v) = v.as_deref().filter(|v| !v.trim().is_empty()) {
             t.set(kind, Some(&check_date(name, v)?));
         }
+    }
+    if let Some(time) = input.due_time.as_deref().filter(|v| !v.trim().is_empty()) {
+        if t.get(FieldKind::Due).is_none() {
+            return Err(Error::Invalid(
+                "A time needs a due date; give the day as well.".into(),
+            ));
+        }
+        t.set(FieldKind::DueTime, Some(&check_time(time)?));
     }
     if let Some(r) = input.recur.as_deref().filter(|r| !r.trim().is_empty()) {
         t.set(FieldKind::Recur, Some(&check_recur(r)?));
@@ -548,6 +573,22 @@ pub fn apply_patch(
             Some(_) => t.set(kind, None),
             None => {}
         }
+    }
+    match &p.due_time {
+        Some(Some(v)) if !v.trim().is_empty() => {
+            if t.get(FieldKind::Due).is_none() {
+                return Err(Error::Invalid(
+                    "A time needs a due date; set the day as well.".into(),
+                ));
+            }
+            t.set(FieldKind::DueTime, Some(&check_time(v)?));
+        }
+        Some(_) => t.set(FieldKind::DueTime, None),
+        None => {}
+    }
+    // a time without its day means nothing
+    if t.get(FieldKind::Due).is_none() {
+        t.set(FieldKind::DueTime, None);
     }
     match &p.recur {
         Some(Some(r)) if !r.trim().is_empty() => t.set(FieldKind::Recur, Some(&check_recur(r)?)),
@@ -806,6 +847,63 @@ mod tests {
         // done twice is a no-op
         done(&mut c, "aaa111").unwrap();
         assert_eq!(read(&v, "01-Projects/garden.md"), text);
+    }
+
+    #[test]
+    fn due_time_is_written_patched_and_cleared() {
+        let (_d, v) = vault_with(&[("01-Projects/garden.md", GARDEN)]);
+        let vs = [v.clone()];
+        let mut idx = TaskIndex::build(&vs);
+        let mut c = ctx(&vs, &mut idx);
+        let t = add(
+            &mut c,
+            &TaskInput {
+                description: "Call the bank".into(),
+                due: Some("2026-11-06".into()),
+                due_time: Some("9:05".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(t.due_time.as_deref(), Some("09:05"));
+        let id = t.id.clone().unwrap();
+        assert!(read(&v, LOOSE_TASKS).contains(&format!(
+            "- [ ] Call the bank ➕ 2026-11-02 📅 2026-11-06 ⏰ 09:05 🆔 {id}\n"
+        )));
+        let t = update(
+            &mut c,
+            &id,
+            &TaskPatch {
+                due_time: Some(Some("17:30".into())),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(t.due_time.as_deref(), Some("17:30"));
+        // clearing the day takes the time with it
+        let t = update(
+            &mut c,
+            &id,
+            &TaskPatch {
+                due: Some(None),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!((t.due, t.due_time), (None, None));
+        let no_day = TaskInput {
+            description: "x".into(),
+            due_time: Some("10:00".into()),
+            ..Default::default()
+        };
+        assert!(matches!(add(&mut c, &no_day), Err(Error::Invalid(_))));
+        let bad = TaskInput {
+            description: "x".into(),
+            due: Some("2026-11-06".into()),
+            due_time: Some("25:00".into()),
+            ..Default::default()
+        };
+        assert!(matches!(add(&mut c, &bad), Err(Error::Invalid(_))));
     }
 
     #[test]

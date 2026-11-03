@@ -60,6 +60,7 @@ fn object(props: Value, required: &[&str]) -> Value {
 }
 
 const DATE: &str = "^\\d{4}-\\d{2}-\\d{2}$";
+const TIME: &str = "^([01]\\d|2[0-3]):[0-5]\\d$";
 
 fn vault_prop() -> Value {
     json!({
@@ -96,6 +97,11 @@ fn priority_prop() -> Value {
         "enum": ["highest", "high", "medium", "low", "lowest"],
         "description": "Task priority (🔺 ⏫ 🔼 🔽 ⏬)."
     })
+}
+
+fn time_prop() -> Value {
+    json!({ "type": "string", "pattern": TIME,
+        "description": "HH:MM, 24-hour local time on the due date (⏰; needs a due date). HQ shows a reminder then." })
 }
 
 fn date_prop(what: &str) -> Value {
@@ -144,6 +150,7 @@ const TASK_PATCH_KEYS: &[&str] = &[
     "start",
     "scheduled",
     "due",
+    "dueTime",
     "recur",
     "depends",
     "note",
@@ -405,6 +412,7 @@ pub static TOOLS: &[Tool] = &[
                     "start": date_prop("the day work starts (🛫)"),
                     "scheduled": date_prop("the day to do it (⏳)"),
                     "due": date_prop("the deadline (📅)"),
+                    "dueTime": time_prop(),
                     "recur": { "type": "string",
                         "description": "every day|week|month|year, every N days, every weekday (🔁)." },
                     "depends": { "type": "array", "items": { "type": "string", "pattern": "^[a-z0-9]{6}$" },
@@ -448,6 +456,7 @@ pub static TOOLS: &[Tool] = &[
                             "start": clearable(date_prop("🛫")),
                             "scheduled": clearable(date_prop("⏳")),
                             "due": clearable(date_prop("📅")),
+                            "dueTime": clearable(time_prop()),
                             "recur": clearable(json!({ "type": "string" })),
                             "depends": { "type": "array", "items": { "type": "string" } },
                             "note": { "type": "string", "description": "Move the task to this note (id)." },
@@ -630,6 +639,26 @@ fn invalid(e: serde_json::Error) -> Error {
     Error::Invalid(format!("Invalid arguments: {e}"))
 }
 
+/// `HH:MM`, 24-hour; only with a due date to put it on.
+fn time(field: &str, value: &Option<String>, has_day: bool) -> Result<(), Error> {
+    let Some(v) = value else { return Ok(()) };
+    let ok = v.len() == 5
+        && v.as_bytes()[2] == b':'
+        && v[..2].parse::<u32>().is_ok_and(|h| h < 24)
+        && v[3..].parse::<u32>().is_ok_and(|m| m < 60);
+    if !ok {
+        return Err(Error::Invalid(format!(
+            "`{field}` must be a time as HH:MM (24-hour), got \"{v}\""
+        )));
+    }
+    if !has_day {
+        return Err(Error::Invalid(format!(
+            "`{field}` needs `due`, the day it is on"
+        )));
+    }
+    Ok(())
+}
+
 fn clear_date(field: &str, v: &Option<Option<String>>) -> Result<(), Error> {
     match v {
         Some(Some(d)) => date(field, &Some(d.clone()), false),
@@ -675,7 +704,15 @@ fn update_input(args: Value) -> Result<UpdateTaskInput, Error> {
         None => None,
     };
     // "" (and "none" for priority) clear a field, like B's null
-    for k in ["priority", "project", "start", "scheduled", "due", "recur"] {
+    for k in [
+        "priority",
+        "project",
+        "start",
+        "scheduled",
+        "due",
+        "dueTime",
+        "recur",
+    ] {
         if let Some(v) = patch.get_mut(k) {
             if v.as_str() == Some("") || (k == "priority" && v.as_str() == Some("none")) {
                 *v = Value::Null;
@@ -696,6 +733,9 @@ fn update_input(args: Value) -> Result<UpdateTaskInput, Error> {
     clear_date("patch.start", &p.start)?;
     clear_date("patch.scheduled", &p.scheduled)?;
     clear_date("patch.due", &p.due)?;
+    if let Some(Some(t)) = &p.due_time {
+        time("patch.dueTime", &Some(t.clone()), true)?;
+    }
     for (f, t) in [
         ("patch.tags", &p.tags),
         ("patch.addTags", &p.add_tags),
@@ -833,6 +873,7 @@ pub fn call(b: &dyn Backend, ctx: &Ctx, name: &str, args: Value) -> Result<Value
                 date("start", &i.start, false)?;
                 date("scheduled", &i.scheduled, false)?;
                 date("due", &i.due, false)?;
+                time("dueTime", &i.due_time, i.due.is_some())?;
                 tags("tags", &i.tags)?;
                 if let Some(n) = &i.note {
                     note_id("note", n)?;
@@ -918,5 +959,15 @@ mod tests {
             }
             assert!(t.description.len() > 40, "{} explains itself", t.name);
         }
+    }
+
+    #[test]
+    fn due_time_is_checked() {
+        assert!(time("dueTime", &Some("17:05".into()), true).is_ok());
+        assert!(time("dueTime", &None, false).is_ok());
+        for bad in ["5pm", "24:00", "7:05", "12:60"] {
+            assert!(time("dueTime", &Some(bad.into()), true).is_err(), "{bad}");
+        }
+        assert!(time("dueTime", &Some("09:00".into()), false).is_err());
     }
 }

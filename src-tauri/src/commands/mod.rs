@@ -84,6 +84,8 @@ macro_rules! hq_commands {
             search::conversation_get,
             search::ollama_status,
             search::ollama_recommend,
+            search::action_draft,
+            search::action_add,
             // F bookmarks
             bookmarks::browsers_detect,
             bookmarks::browser_allow,
@@ -196,9 +198,17 @@ mod tests {
         for c in COMMANDS {
             assert!(p.contains(&allow(c)), "main.json is missing {c}");
         }
+        // reminders: the UI may check and ask for notification permission, nothing more
+        // (notifications themselves are sent from Rust, jobs.rs)
+        const NOTIFY: &[&str] = &[
+            "notification:allow-is-permission-granted",
+            "notification:allow-request-permission",
+        ];
         for x in &p {
             assert!(
-                x.starts_with("core:event:") || COMMANDS.iter().any(|c| &allow(c) == x),
+                x.starts_with("core:event:")
+                    || NOTIFY.contains(&x.as_str())
+                    || COMMANDS.iter().any(|c| &allow(c) == x),
                 "main.json grants {x}, which is not an HQ command"
             );
         }

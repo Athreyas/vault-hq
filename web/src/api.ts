@@ -249,6 +249,7 @@ export function emptyTaskInput(): TaskInput {
     start: null,
     scheduled: null,
     due: null,
+    dueTime: null,
     recur: null,
     depends: [],
     waiting: false,
@@ -320,6 +321,8 @@ interface Events {
   "ask://event": AskEnvelope;
   "jobs://progress": JobProgress;
   "capture://open": null;
+  /** A reminder was clicked: show this task (its key) in the Tasks view. */
+  "tasks://open": string | null;
 }
 
 /** Subscribe; returns the unsubscribe. Outside the app it is a no-op. */

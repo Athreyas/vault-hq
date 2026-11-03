@@ -513,6 +513,7 @@ impl Backend for CoreBackend {
             start: input.start,
             scheduled: input.scheduled,
             due: input.due,
+            due_time: input.due_time,
             recur: input.recur,
             depends: input.depends,
             waiting: input.waiting,

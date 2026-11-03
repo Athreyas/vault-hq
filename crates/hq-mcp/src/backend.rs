@@ -189,6 +189,9 @@ pub struct AddTaskInput {
     pub start: Option<String>,
     pub scheduled: Option<String>,
     pub due: Option<String>,
+    /// `HH:MM` (24-hour, local) on the due date: written as `⏰`, and HQ reminds then.
+    #[serde(rename = "dueTime")]
+    pub due_time: Option<String>,
     pub recur: Option<String>,
     #[serde(default)]
     pub depends: Vec<String>,

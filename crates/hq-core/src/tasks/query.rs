@@ -169,7 +169,17 @@ fn by_urgency(a: &Task, b: &Task) -> Ordering {
 pub fn compare(a: &Task, b: &Task, sort: TaskSort) -> Ordering {
     let primary = match sort {
         TaskSort::Urgency => by_urgency(a, b),
-        TaskSort::Due => opt_cmp(a.due.as_deref(), b.due.as_deref()),
+        // a timed task sorts before an untimed one on the same day (that one is "by end of day")
+        TaskSort::Due => opt_cmp(a.due.as_deref(), b.due.as_deref()).then_with(|| {
+            opt_cmp(
+                a.due
+                    .as_ref()
+                    .map(|_| a.due_time.as_deref().unwrap_or("24:00")),
+                b.due
+                    .as_ref()
+                    .map(|_| b.due_time.as_deref().unwrap_or("24:00")),
+            )
+        }),
         TaskSort::Priority => opt_cmp(a.priority, b.priority),
         // newest first
         TaskSort::Created => opt_cmp(
@@ -483,5 +493,20 @@ mod tests {
         assert_eq!(due_bucket(None, t), "none");
         assert!(project_matches(Some("home.garden"), "home"));
         assert!(!project_matches(Some("homework"), "home"));
+    }
+
+    #[test]
+    fn timed_tasks_sort_before_untimed_on_the_same_day() {
+        let mut a = crate::tasks::tests::task("- [ ] all day 📅 2026-11-06");
+        let mut b = crate::tasks::tests::task("- [ ] at nine 📅 2026-11-06 ⏰ 09:00");
+        let mut c = crate::tasks::tests::task("- [ ] at eight 📅 2026-11-06 ⏰ 08:00");
+        let d = crate::tasks::tests::task("- [ ] earlier day 📅 2026-11-05");
+        for t in [&mut a, &mut b, &mut c] {
+            t.urgency = 0.0;
+        }
+        let mut v = [a, b, c, d];
+        v.sort_by(|x, y| compare(x, y, TaskSort::Due));
+        let order: Vec<&str> = v.iter().map(|t| t.description.as_str()).collect();
+        assert_eq!(order, ["earlier day", "at eight", "at nine", "all day"]);
     }
 }

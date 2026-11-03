@@ -17,7 +17,11 @@ tags?: Array<string>, addTags?: Array<string>, removeTags?: Array<string>,
 /**
  * Sets the `#project/<name>` tag.
  */
-project?: string | null, start?: string | null, scheduled?: string | null, due?: string | null, recur?: string | null, depends?: Array<string>, 
+project?: string | null, start?: string | null, scheduled?: string | null, due?: string | null, 
+/**
+ * `HH:MM`; `null` clears it. Clearing `due` clears the time too.
+ */
+dueTime?: string | null, recur?: string | null, depends?: Array<string>, 
 /**
  * Move the task (with its annotations) to this note's `## Tasks` section.
  */

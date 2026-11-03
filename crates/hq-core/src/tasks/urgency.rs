@@ -1,6 +1,6 @@
 //! Urgency with Taskwarrior's default coefficients (SPEC 4.2), so the order feels familiar.
 
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveTime};
 
 use super::date;
 use crate::types::{Priority, Task, TaskStatus};
@@ -22,7 +22,31 @@ pub const ANNOTATIONS: f64 = 1.0;
 
 /// Taskwarrior's due curve: full when overdue, 0.2 two weeks or more out, linear between.
 pub fn due_factor(due: NaiveDate, today: NaiveDate) -> f64 {
-    let overdue = (today - due).num_days() as f64;
+    due_curve((today - due).num_days() as f64)
+}
+
+/// The due curve for a task with a `⏰` time: `now` is the time of day it is on `today`
+/// (`None` when `today` is not the real today, as in tests and "what will be due" views,
+/// which count from the start of the day). Once the time has passed it is overdue.
+pub fn due_factor_timed(
+    due: NaiveDate,
+    time: NaiveTime,
+    today: NaiveDate,
+    now: Option<NaiveTime>,
+) -> f64 {
+    let day = (today - due).num_days() as f64;
+    let now = now.unwrap_or(NaiveTime::MIN);
+    let secs = (now - time).num_seconds() as f64;
+    due_curve(day + secs / 86_400.0)
+}
+
+/// The time of day now, when `today` is the local date; otherwise None.
+pub fn now_on(today: NaiveDate) -> Option<NaiveTime> {
+    let now = chrono::Local::now().naive_local();
+    (now.date() == today).then(|| now.time())
+}
+
+fn due_curve(overdue: f64) -> f64 {
     if overdue > 0.0 {
         1.0
     } else if overdue >= -14.0 {
@@ -39,7 +63,15 @@ pub fn urgency(t: &Task, today: NaiveDate) -> f64 {
     }
     let mut u = 0.0;
     if let Some(due) = t.due.as_deref().and_then(date) {
-        u += DUE * due_factor(due, today);
+        let time = t
+            .due_time
+            .as_deref()
+            .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
+        u += DUE
+            * match time {
+                Some(time) => due_factor_timed(due, time, today, now_on(today)),
+                None => due_factor(due, today),
+            };
     }
     u += match t.priority {
         // Taskwarrior has three levels; the two extra Obsidian ones sit with their neighbours
@@ -100,6 +132,29 @@ mod tests {
         assert!((due_factor(d("2026-11-16"), today) - 0.2).abs() < 1e-9);
         assert_eq!(due_factor(d("2027-01-01"), today), 0.2);
         assert!(due_factor(d("2026-11-03"), today) > due_factor(d("2026-11-10"), today));
+    }
+
+    #[test]
+    fn a_due_time_counts_once_it_has_passed() {
+        let today = d("2026-11-02");
+        let t = |h: u32, m: u32| NaiveTime::from_hms_opt(h, m, 0).unwrap();
+        let day = due_factor(today, today);
+        // before the time: a little less pressing than "some time today"
+        let before = due_factor_timed(today, t(17, 0), today, Some(t(9, 0)));
+        assert!(before < day && before > due_factor(d("2026-11-03"), today));
+        // after it: overdue
+        assert_eq!(
+            due_factor_timed(today, t(17, 0), today, Some(t(17, 1))),
+            1.0
+        );
+        // yesterday evening is overdue even at midnight
+        assert_eq!(
+            due_factor_timed(d("2026-11-01"), t(20, 0), today, None),
+            1.0
+        );
+        let mut timed = task("- [ ] call 📅 2026-11-02 ⏰ 17:00");
+        timed.due_time = Some("17:00".into());
+        assert!(urgency(&timed, today) > 0.0);
     }
 
     #[test]

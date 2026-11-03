@@ -157,6 +157,16 @@ pub trait Embedder {
     fn embed(&self, inputs: &[String]) -> Result<Vec<Vec<f32>>>;
 }
 
+/// Structured output: a JSON value that follows `schema` (Ollama's `format`).
+pub trait JsonChat {
+    fn model(&self) -> &str;
+    fn chat_json(
+        &self,
+        messages: &[ChatMessage],
+        schema: &serde_json::Value,
+    ) -> Result<serde_json::Value>;
+}
+
 /// What Ask needs from a model server.
 pub trait Chat {
     fn model(&self) -> &str;
@@ -284,6 +294,50 @@ impl Client {
         }
         let reader = BufReader::new(r.body_mut().as_reader());
         read_chat_stream(reader, cancel, on_token)
+    }
+
+    /// `POST /api/chat` with structured output: `schema` (a JSON schema) goes in `format`,
+    /// and the reply's content is parsed as JSON. Not streamed: the caller wants it whole.
+    pub fn chat_json(
+        &self,
+        model: &str,
+        messages: &[ChatMessage],
+        schema: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        #[derive(Deserialize)]
+        struct Out {
+            message: Msg,
+        }
+        #[derive(Deserialize)]
+        struct Msg {
+            content: String,
+        }
+        let mut r = self
+            .agent
+            .post(format!("{}/api/chat", self.base))
+            .send_json(json!({
+                "model": model,
+                "stream": false,
+                "format": schema,
+                "messages": messages,
+                "options": { "temperature": 0 },
+            }))
+            .map_err(|e| self.unreachable(e))?;
+        let status = r.status().as_u16();
+        let body = r
+            .body_mut()
+            .read_to_string()
+            .map_err(|e| self.unreachable(e))?;
+        if status != 200 {
+            return Err(server_error(status, &body, model));
+        }
+        let out: Out = serde_json::from_str(&body)
+            .map_err(|e| Error::Internal(format!("Unexpected chat reply: {e}")))?;
+        serde_json::from_str(&out.message.content).map_err(|e| {
+            Error::Internal(format!(
+                "The model's answer was not the JSON asked for: {e}"
+            ))
+        })
     }
 
     fn unreachable(&self, e: ureq::Error) -> Error {
@@ -414,6 +468,19 @@ impl Embedder for Bound<'_> {
     }
     fn embed(&self, inputs: &[String]) -> Result<Vec<Vec<f32>>> {
         self.0.client.embed(self.1, inputs)
+    }
+}
+
+impl JsonChat for Bound<'_> {
+    fn model(&self) -> &str {
+        self.1
+    }
+    fn chat_json(
+        &self,
+        messages: &[ChatMessage],
+        schema: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        self.0.client.chat_json(self.1, messages, schema)
     }
 }
 
@@ -770,6 +837,11 @@ mod tests {
                 "application/json",
                 r#"{"error":"model 'x' not found"}"#.into(),
             ),
+            (
+                200,
+                "application/json",
+                r#"{"message":{"role":"assistant","content":"{\"ok\":true}"},"done":true}"#.into(),
+            ),
         ]);
         let c = Client::new(&url).unwrap();
         assert_eq!(
@@ -791,6 +863,14 @@ mod tests {
         assert_eq!(s.text, toks);
         let e = c.embed("x", &["a".into()]).unwrap_err();
         assert!(e.to_string().contains("ollama pull x"), "{e}");
+        let v = c
+            .chat_json(
+                "m",
+                &[ChatMessage::new("user", "hi")],
+                &json!({"type": "object"}),
+            )
+            .unwrap();
+        assert_eq!(v, json!({"ok": true}));
     }
 
     #[test]

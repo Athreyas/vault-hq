@@ -54,6 +54,9 @@ pub const COMMANDS: &[&str] = &[
     // ai (C)
     "ollama_status",
     "ollama_recommend",
+    // action items from Ask and quick capture (C)
+    "action_draft",
+    "action_add",
     // bookmarks (F)
     "browsers_detect",
     "browser_allow",
@@ -88,4 +91,11 @@ pub const COMMANDS: &[&str] = &[
 ];
 
 /// What the quick-capture window may call: capture, nothing else that writes.
-pub const CAPTURE_WINDOW: &[&str] = &["capture", "capture_hide", "settings_get"];
+/// ⌘Enter there drafts a task and adds it once the user confirms.
+pub const CAPTURE_WINDOW: &[&str] = &[
+    "capture",
+    "capture_hide",
+    "settings_get",
+    "action_draft",
+    "action_add",
+];

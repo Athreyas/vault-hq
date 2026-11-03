@@ -54,6 +54,8 @@ fn run() {
                 })
                 .build(),
         )
+        // C reminders: macOS notifications for tasks with a ⏰ time (jobs::start_reminders)
+        .plugin(tauri_plugin_notification::init())
         .menu(tauri::menu::Menu::default) // Edit menu: copy and paste work
         .invoke_handler(commands::handler())
         .setup(|app| {
@@ -112,6 +114,7 @@ fn run() {
             }
             jobs::start(app.handle().clone());
             jobs::start_widget_sampler(app.handle());
+            jobs::start_reminders(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| match event {

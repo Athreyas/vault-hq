@@ -2,6 +2,8 @@
 // view that talks to Tauri.
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { ActionAdded } from "../bindings/ActionAdded.ts";
+import type { ActionDraft } from "../bindings/ActionDraft.ts";
 import type { AskEnvelope } from "../bindings/AskEnvelope.ts";
 import type { Conversation } from "../bindings/Conversation.ts";
 import type { ConversationSummary } from "../bindings/ConversationSummary.ts";
@@ -11,7 +13,7 @@ import type { SearchResult } from "../bindings/SearchResult.ts";
 import type { SearchScope } from "../bindings/SearchScope.ts";
 import type { VaultInfo } from "../bindings/VaultInfo.ts";
 
-export type { AskEnvelope, Conversation, ConversationSummary, OllamaStatus, Recommendation, SearchResult, SearchScope };
+export type { ActionAdded, ActionDraft, AskEnvelope, Conversation, ConversationSummary, OllamaStatus, Recommendation, SearchResult, SearchScope };
 
 /** A command error (`HqError`) or anything else, as words for the user. */
 export function errorText(e: unknown): string {
@@ -25,6 +27,11 @@ export const conversationGet = (id: string) => invoke<Conversation>("conversatio
 export const ollamaStatus = () => invoke<OllamaStatus>("ollama_status");
 export const ollamaRecommend = () => invoke<Recommendation>("ollama_recommend");
 export const askCancel = (id: string) => invoke<boolean>("ask_cancel", { id });
+
+/** Read text as an action item; `force` treats any text as one (quick capture's ⌘Enter). Writes nothing. */
+export const actionDraft = (text: string, force = false) => invoke<ActionDraft>("action_draft", { text, force });
+/** Add the confirmed (and possibly edited) draft as a task. */
+export const actionAdd = (draft: ActionDraft) => invoke<ActionAdded>("action_add", { draft });
 
 /** Open vaults for the scope picker; empty if the vault commands aren't there yet. */
 export const vaultsList = () => invoke<VaultInfo[]>("vaults_list").catch(() => [] as VaultInfo[]);

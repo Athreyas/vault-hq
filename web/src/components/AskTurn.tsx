@@ -1,11 +1,43 @@
 import { noteUrl } from "../api.ts";
+import type { ActionDraft } from "../api/search.ts";
+import AskAction from "./AskAction.tsx";
 import { RichText } from "./Rich.tsx";
 import type { UiTurn } from "./AskState.ts";
 import { scopeLabel } from "./AskState.ts";
 
 /** One question with its answer (streaming or finished) and the notes it read. */
-export default function AskTurn({ turn: t, vaultNames }: { turn: UiTurn; vaultNames: Map<string, string> }) {
+export interface ActionHandlers {
+  change: (d: ActionDraft) => void;
+  add: () => void;
+  cancel: () => void;
+  ask: () => void;
+}
+
+export default function AskTurn({ turn: t, vaultNames, onAction }: { turn: UiTurn; vaultNames: Map<string, string>; onAction: ActionHandlers }) {
   const waiting = t.streaming && !t.answer;
+  if (t.mode === "action" && t.action) {
+    return (
+      <li className="ask-turn is-action">
+        <div className="ask-q">
+          <p>
+            <span aria-hidden="true">❯ </span>
+            {t.question}
+          </p>
+          <span className="ask-meta">task</span>
+        </div>
+        <AskAction
+          draft={t.action}
+          added={t.added}
+          busy={t.streaming}
+          error={t.error}
+          onChange={onAction.change}
+          onAdd={onAction.add}
+          onCancel={onAction.cancel}
+          onAsk={t.added ? undefined : onAction.ask}
+        />
+      </li>
+    );
+  }
   return (
     <li className={`ask-turn ${t.streaming ? "is-streaming" : ""}`}>
       <div className="ask-q">

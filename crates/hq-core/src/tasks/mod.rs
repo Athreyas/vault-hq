@@ -30,7 +30,8 @@ use model::FieldKind;
 use parse::Found;
 
 pub const CACHE_FILE: &str = "tasks-index.json";
-const CACHE_VERSION: u32 = 1;
+// 2: tasks carry `dueTime` (⏰)
+const CACHE_VERSION: u32 = 2;
 
 pub fn date(s: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(s.trim(), "%Y-%m-%d").ok()
@@ -160,6 +161,7 @@ pub fn to_tasks(meta: &NoteMeta, found: &[Found]) -> Vec<Task> {
                 start: get(FieldKind::Start),
                 scheduled: get(FieldKind::Scheduled),
                 due: get(FieldKind::Due),
+                due_time: get(FieldKind::DueTime),
                 done: get(FieldKind::Done),
                 cancelled: get(FieldKind::Cancelled),
                 recur: get(FieldKind::Recur),

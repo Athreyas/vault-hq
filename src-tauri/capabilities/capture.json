@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "capture",
-  "description": "The quick-capture window: capture, close itself, read the theme.",
+  "description": "The quick-capture window: capture, close itself, read the theme, and draft then add a task (⌘Enter).",
   "windows": [
     "capture"
   ],
@@ -10,6 +10,8 @@
     "core:event:allow-unlisten",
     "allow-capture",
     "allow-capture-hide",
-    "allow-settings-get"
+    "allow-settings-get",
+    "allow-action-draft",
+    "allow-action-add"
   ]
 }
