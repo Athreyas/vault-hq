@@ -1,47 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import type { settings } from "../../../server/settings.ts";
 import type { Notify } from "../App.tsx";
-import { applyTheme, get, post, savedTheme, type Theme } from "../api.ts";
-
-type Info = Awaited<ReturnType<typeof settings>>;
-type Candidate = { path: string; name: string; automation: boolean; current: boolean };
-
-/** Wait for a restarted server, then reload the page onto the new vault. */
-async function reloadWhenBack(): Promise<void> {
-  await new Promise((r) => setTimeout(r, 1200));
-  for (let i = 0; i < 60; i++) {
-    try {
-      const r = await fetch("/api/status", { cache: "no-store" });
-      if (r.ok) return window.location.reload();
-    } catch {
-      /* still restarting */
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-}
-
-function Reveal({ what }: { what: string }) {
-  return (
-    <button type="button" className="link-button" onClick={() => void post("/api/settings/reveal", { what })} title="Show in Finder">
-      show
-    </button>
-  );
-}
+import { api, notBuilt, setTheme, useCall, type AppStatus, type Settings as SettingsData, type Theme } from "../api.ts";
 
 const SECTIONS = [
-  ["brain", "Brain"],
+  ["vaults", "Vaults"],
   ["ai", "Local AI"],
+  ["keys", "Hotkeys"],
   ["look", "Appearance"],
-  ["app", "App & service"],
-  ["privacy", "Privacy & account"],
+  ["app", "App & agents"],
+  ["privacy", "Privacy"],
 ] as const;
 type Section = (typeof SECTIONS)[number][0];
-
-const ago = (iso: string | null) => {
-  if (!iso) return "never";
-  const min = Math.round((Date.now() - Date.parse(iso)) / 60_000);
-  return min < 1 ? "just now" : min < 60 ? `${min} min ago` : min < 1440 ? `${Math.round(min / 60)} h ago` : `${Math.round(min / 1440)} d ago`;
-};
 
 function Row({ k, children }: { k: string; children: React.ReactNode }) {
   return (
@@ -56,69 +25,19 @@ function Ok({ on, yes, no }: { on: boolean; yes: string; no: string }) {
   return <span className={on ? "set-ok" : "set-bad"}>{on ? `● ${yes}` : `○ ${no}`}</span>;
 }
 
-// ⌘, : what HQ is connected to and the few things that can be changed from here.
-export default function Settings({ onClose, notify }: { onClose: () => void; notify: Notify }) {
-  const [info, setInfo] = useState<Info | null>(null);
+const errText = (e: unknown, what: string) => (notBuilt(e) ? `${what} is not in this build yet.` : (e as Error).message);
+
+// ⌘, : the vaults HQ reads, the local model, hotkeys, theme, and where HQ keeps its files.
+export default function Settings({ status, onClose, notify, onChange }: { status: AppStatus | null; onClose: () => void; notify: Notify; onChange: () => void }) {
+  const [section, setSection] = useState<Section>("vaults");
+  const [s, setS] = useState<SettingsData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>("brain");
-  const [ai, setAi] = useState({ url: "", chatModel: "", embedModel: "" });
-  const [busy, setBusy] = useState(false);
-  const [theme, setTheme] = useState<Theme>(savedTheme);
-  const [vaults, setVaults] = useState<Candidate[]>([]);
-  const [vaultPath, setVaultPath] = useState("");
-  const [switching, setSwitching] = useState<string | null>(null);
-  const [task, setTask] = useState("");
   const box = useRef<HTMLDivElement>(null);
 
-  const load = () =>
-    get<Info>("/api/settings").then(
-      (d) => {
-        setInfo(d);
-        setAi({ url: d.ai.url, chatModel: d.ai.chatModel, embedModel: d.ai.embedModel });
-        setTask(d.tasks.bin);
-      },
-      (e: Error) => setError(e.message),
-    );
   useEffect(() => {
-    void load();
-    get<Candidate[]>("/api/settings/vaults").then(setVaults, () => setVaults([]));
+    api.settings().then(setS, (e: Error) => setError(e.message));
     box.current?.focus();
   }, []);
-
-  async function useVault(dir: string | null) {
-    setSwitching(dir ?? "the automation's vault");
-    try {
-      const r = await post<{ restarting: boolean; vault: string }>("/api/settings/vault", { path: dir });
-      if (r.restarting) {
-        notify(`Switching to ${r.vault.split("/").pop()}…`);
-        await reloadWhenBack();
-      } else {
-        notify("Saved. Restart HQ to switch (scripts/service.sh restart, or stop and npm start)");
-        setSwitching(null);
-      }
-    } catch (e) {
-      notify((e as Error).message, "error");
-      setSwitching(null);
-    }
-  }
-
-  async function saveTask() {
-    try {
-      setInfo(await post<Info>("/api/settings", { task }));
-      notify("Saved");
-    } catch (e) {
-      notify((e as Error).message, "error");
-    }
-  }
-
-  async function copy(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      notify("Copied");
-    } catch {
-      notify("Could not copy", "error");
-    }
-  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -131,38 +50,39 @@ export default function Settings({ onClose, notify }: { onClose: () => void; not
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  async function saveAi() {
-    if (!info) return;
-    setBusy(true);
+  /** Save a patch; returns whether it was taken. */
+  async function save(patch: Record<string, unknown>, ok = "Saved"): Promise<boolean> {
     try {
-      const changed = Object.fromEntries(Object.entries(ai).filter(([k, v]) => v !== info.ai[k as keyof typeof ai]));
-      const d = await post<Info>("/api/settings", { ollama: changed });
-      setInfo(d);
-      notify(d.ai.up ? "Saved. Local AI is reachable" : "Saved, but nothing answers at that address", d.ai.up ? "ok" : "error");
+      setS(await api.updateSettings(patch));
+      notify(ok);
+      return true;
     } catch (e) {
-      notify((e as Error).message, "error");
-    } finally {
-      setBusy(false);
+      notify(errText(e, "Saving settings"), "error");
+      return false;
     }
   }
 
-  const aiDirty = info !== null && (ai.url !== info.ai.url || ai.chatModel !== info.ai.chatModel || ai.embedModel !== info.ai.embedModel);
-  const pick = (k: "chatModel" | "embedModel", label: string, hint: string) => {
-    const models = info?.ai.models ?? [];
-    const lockedField = info?.ai.locked[k];
-    return (
-      <label className="set-field">
-        <span>{label}</span>
-        <input list={`models-${k}`} value={ai[k]} disabled={lockedField} onChange={(e) => setAi({ ...ai, [k]: e.target.value })} spellCheck={false} />
-        <datalist id={`models-${k}`}>
-          {models.map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-        <small>{lockedField ? "Set by an environment variable; change it there." : hint}</small>
-      </label>
-    );
-  };
+  async function act(fn: () => Promise<unknown>, ok: string, what: string) {
+    try {
+      await fn();
+      notify(ok);
+      setS(await api.settings());
+      onChange();
+    } catch (e) {
+      notify(errText(e, what), "error");
+    }
+  }
+
+  async function copy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      notify("Copied");
+    } catch {
+      notify("Could not copy", "error");
+    }
+  }
+
+  const reveal = (what: string) => void api.reveal(what).catch((e: Error) => notify(e.message, "error"));
 
   return (
     <div className="palette-backdrop" onMouseDown={onClose}>
@@ -182,192 +102,321 @@ export default function Settings({ onClose, notify }: { onClose: () => void; not
         </nav>
         <div className="settings-body">
           {error && <p className="error">{error}</p>}
-          {!info && !error && <p className="empty">Reading settings…</p>}
-
-          {info && section === "brain" && (
-            <>
-              <p className="lede">The brain is a folder of markdown notes. Agents, editors and HQ all read and write the same files; HQ never keeps a copy of its own.</p>
-              <dl className="set-list">
-                <Row k="vault">
-                  <b>{info.vault.name}</b>
-                </Row>
-                <Row k="folder">
-                  <code className="set-path">{info.vault.path}</code> <Reveal what="vault" />
-                </Row>
-                <Row k="chosen by">{info.vault.pathFrom}</Row>
-                <Row k="storage">{info.vault.icloud ? "iCloud Drive (keep the folder pinned: Finder → Keep Downloaded)" : "a local folder"}</Row>
-                <Row k="notes">
-                  {info.vault.notes} readable{info.vault.unreadable > 0 && <span className="set-bad">, {info.vault.unreadable} unreadable</span>}
-                </Row>
-                <Row k="sections">{info.vault.folders.join(" · ")}</Row>
-                <Row k="last sync">{ago(info.vault.lastSync)} (Taskwarrior ↔ notes)</Row>
-                <Row k="sources on">{info.vault.collectors.join(", ") || "none"}</Row>
-                <Row k="automation">
-                  <code className="set-path">{info.vault.automation}</code> <Reveal what="automation" />
-                </Row>
-                {info.vault.from === "settings" && info.vault.automationVault && (
-                  <Row k="background sync">
-                    still on <code className="set-path">{info.vault.automationVault}</code>
-                  </Row>
-                )}
-              </dl>
-
-              <h2 className="set-h">Change vault</h2>
-              <p className="set-note">HQ restarts on the new vault in a few seconds. Notes, tasks and Ask follow it; nothing in either vault changes.</p>
-              {vaults.length > 0 && (
-                <ul className="set-vaults">
-                  {vaults.map((v) => (
-                    <li key={v.path}>
-                      <button type="button" className={`set-vault ${v.current ? "is-current" : ""}`} disabled={v.current || switching !== null} onClick={() => void useVault(v.path)} title={v.path}>
-                        <b>{v.name}</b>
-                        <small>{v.current ? "showing now" : v.automation ? "has its own automation" : "plain Obsidian vault"}</small>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              <div className="set-inline">
-                <input aria-label="Vault folder" placeholder="or a folder path, e.g. ~/Documents/team-vault" value={vaultPath} onChange={(e) => setVaultPath(e.target.value)} spellCheck={false} disabled={info.vault.from === "env"} />
-                <button type="button" className="button is-primary" disabled={!vaultPath.trim() || switching !== null} onClick={() => void useVault(vaultPath)}>
-                  {switching ? "switching…" : "use folder"}
-                </button>
-              </div>
-              {info.vault.from === "settings" && (
-                <p className="set-note">
-                  HQ shows a vault chosen here, not the one the background sync serves.{" "}
-                  <button type="button" className="link-button" disabled={switching !== null} onClick={() => void useVault(null)}>
-                    go back to the sync's vault
-                  </button>
-                </p>
-              )}
-              {info.vault.hasAutomation && info.vault.path !== info.vault.automationVault && (
-                <p className="set-note">
-                  To move the background sync, hooks and metrics to this vault too, run its installer in Terminal:{" "}
-                  <code className="set-path">bash "{info.vault.path}/_tools/automation/install.sh"</code>{" "}
-                  <button type="button" className="link-button" onClick={() => void copy(`bash "${info.vault.path}/_tools/automation/install.sh"`)}>
+          {!s && !error && <p className="empty">Reading settings…</p>}
+          {s && section === "vaults" && <Vaults s={s} status={status} act={act} save={save} reveal={reveal} />}
+          {s && section === "ai" && <LocalAi s={s} save={save} copy={copy} />}
+          {s && section === "keys" && <Keys s={s} save={save} />}
+          {s && section === "look" && <Look s={s} notify={notify} />}
+          {s && section === "app" && (
+            <dl className="set-list">
+              <Row k="version">Vault HQ {status?.version ?? "…"}</Row>
+              <Row k="agents (MCP)">
+                <code className="set-path">{status?.mcpCommand ?? "…"}</code>{" "}
+                {status && (
+                  <button type="button" className="link-button" onClick={() => void copy(status.mcpCommand)}>
                     copy
                   </button>
-                </p>
-              )}
-
-              <h2 className="set-h">Taskwarrior</h2>
-              <div className="set-inline">
-                <input aria-label="Taskwarrior program" value={task} onChange={(e) => setTask(e.target.value)} spellCheck={false} disabled={info.tasks.locked} />
-                <button type="button" className="button is-primary" disabled={task === info.tasks.bin || info.tasks.locked} onClick={() => void saveTask()}>
-                  save
-                </button>
-              </div>
-              <p className="set-note">
-                <Ok on={info.tasks.installed} yes="found" no="not found at that path" />
-                {info.tasks.locked ? " · set by TASK_BIN; change it there" : " · the program HQ runs for every task change (Homebrew: /opt/homebrew/bin/task)"}
-              </p>
-            </>
-          )}
-
-          {info && section === "ai" && (
-            <>
-              <p className="lede">Ask and semantic search run on a local model server (Ollama). Questions and notes never leave this Mac or your home network.</p>
-              <dl className="set-list">
-                <Row k="status">
-                  <Ok on={info.ai.up} yes="reachable" no="not reachable" /> · <Ok on={info.ai.chatReady} yes="answer model ready" no="answer model missing" /> · <Ok on={info.ai.embedReady} yes="search model ready" no="search model missing" />
-                </Row>
-                <Row k="indexed">{info.ai.vectors.toLocaleString("en-US")} note passages embedded</Row>
-              </dl>
-              <div className="set-form">
-                <label className="set-field">
-                  <span>server</span>
-                  <input value={ai.url} disabled={info.ai.locked.url} onChange={(e) => setAi({ ...ai, url: e.target.value })} spellCheck={false} />
-                  <small>{info.ai.locked.url ? "Set by OLLAMA_URL; change it there." : "This Mac (http://127.0.0.1:11434) or a home-network address. Cloud addresses are refused."}</small>
-                </label>
-                {pick("chatModel", "answer model", "Writes answers. Bigger is better if the Mac has the memory (e.g. qwen2.5:14b).")}
-                {pick("embedModel", "search model", "Finds passages by meaning. Changing it re-indexes the vault on the next search (about a minute).")}
-                <div className="set-actions">
-                  <button type="button" className="button is-primary" disabled={!aiDirty || busy} onClick={() => void saveAi()}>
-                    {busy ? "saving…" : "save"}
-                  </button>
-                  <button type="button" className="button" disabled={busy} onClick={() => void load()}>
-                    test connection
-                  </button>
-                  {info.ai.models.length > 0 && <small className="set-note">Installed: {info.ai.models.join(", ")}</small>}
-                </div>
-                {!info.ai.chatReady && info.ai.up && (
-                  <p className="set-note">
-                    Install the answer model with <code>ollama pull {info.ai.chatModel}</code>.
-                  </p>
                 )}
-              </div>
-            </>
-          )}
-
-          {info && section === "look" && (
-            <>
-              <p className="lede">Dark by default. The choice is kept in this window only.</p>
-              <div className="segmented" role="group" aria-label="Theme">
-                {(["dark", "light"] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    className={theme === t ? "is-active" : ""}
-                    onClick={() => {
-                      applyTheme(t);
-                      setTheme(t);
-                    }}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
-              <dl className="set-list">
-                <Row k="your words">IBM Plex Mono</Row>
-                <Row k="machine output">JetBrains Mono</Row>
-              </dl>
-            </>
-          )}
-
-          {info && section === "app" && (
-            <dl className="set-list">
-              <Row k="version">Vault HQ {info.app.version}</Row>
-              <Row k="Mac app">
-                <Ok on={info.app.macApp} yes="installed in ~/Applications (⌃⌥Space brings it forward)" no="not installed; scripts/app.sh builds it" />
+                <p className="set-note">Agents start this as a stdio MCP server. It uses the same vaults and the same file locks as the app.</p>
               </Row>
-              <Row k="service">
-                <Ok on={info.app.service} yes="runs at login and restarts itself (local.vault-hq)" no="not installed; scripts/service.sh install" />
+              <Row k="settings">
+                <button type="button" className="link-button" onClick={() => reveal("settings")}>
+                  show settings.json
+                </button>
               </Row>
-              <Row k="server">
-                pid {info.app.pid} on port {info.app.port}, up since {new Date(info.app.startedAt).toLocaleString("en-US")} (Node {info.app.node})
+              <Row k="app files">
+                <button type="button" className="link-button" onClick={() => reveal("support")}>
+                  show support folder
+                </button>{" "}
+                ·{" "}
+                <button type="button" className="link-button" onClick={() => reveal("cache")}>
+                  show cache (search index, task index)
+                </button>
               </Row>
-              <Row k="log">
-                <code className="set-path">{info.app.log}</code> <Reveal what="log" />
-              </Row>
-              <Row k="settings file">
-                <code className="set-path">{info.app.settingsFile}</code> <Reveal what="settings" />
-              </Row>
-              <Row k="state folder">
-                <code className="set-path">{info.locations.state}</code> <Reveal what="state" />
-              </Row>
-              <Row k="extras">{info.app.extension ? "this Mac's own extras are loaded (server/personal.ts)" : "core only"}</Row>
-              <Row k="keys">⌘, settings · ⌘K palette · 1–7 views · / ask · e edit a note · ⌘S save</Row>
+              <Row k="keys">⌘K palette · ⌘, settings · 1–7 views · / ask · n new · e edit a note · ⌘S save</Row>
             </dl>
           )}
-
-          {info && section === "privacy" && (
+          {s && section === "privacy" && (
             <>
-              <p className="lede">There is no account. HQ runs only on this Mac, for the person logged in, and has nothing to sign in to.</p>
+              <p className="lede">There is no account. HQ runs on this Mac, for the person logged in, and has nothing to sign in to.</p>
               <dl className="set-list">
-                <Row k="user">
-                  {info.privacy.user} on {info.privacy.host}
-                </Row>
-                <Row k="listens on">
-                  <code>{info.privacy.bind}</code>: this Mac only, never the network
-                </Row>
-                <Row k="writes">only from HQ's own pages (a same-origin header check), and only to existing notes, today's inbox and planning notes, and Taskwarrior</Row>
-                <Row k="talks to">the local model server above{info.app.extension ? ", plus whatever this Mac's extras fetch" : ""}. No analytics, no telemetry, no cloud model.</Row>
-                <Row k="stores">nothing of its own but snoozes, settings and the search index, all in the automation state folder</Row>
+                <Row k="your notes">plain markdown in the vault folders above; HQ keeps no copy of its own</Row>
+                <Row k="talks to">the local model server you set (this Mac or the home network), a page you save as a bookmark (its title), and nothing else. No analytics, no telemetry, no cloud model.</Row>
+                <Row k="stores">settings, and rebuildable indexes in the cache folder</Row>
+                <Row k="refuses">vault folders named in the blocked list, before reading anything inside them</Row>
               </dl>
             </>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+type Save = (patch: Record<string, unknown>, ok?: string) => Promise<boolean>;
+type Act = (fn: () => Promise<unknown>, ok: string, what: string) => Promise<void>;
+
+function Vaults({ s, status, act, save, reveal }: { s: SettingsData; status: AppStatus | null; act: Act; save: Save; reveal: (what: string) => void }) {
+  const [path, setPath] = useState("");
+  const [name, setName] = useState("");
+  const [blocked, setBlocked] = useState("");
+  const candidates = useCall(api.vaultCandidates, "candidates", { live: false });
+  const known = new Set(s.vaults.map((v) => v.path));
+  const infos = status?.vaults ?? [];
+
+  return (
+    <>
+      <p className="lede">A vault is a folder of markdown. Add as many as you like (home, team); captures and new notes go to the primary one.</p>
+      {status && status.problems.length > 0 && (
+        <ul className="set-problems">
+          {status.problems.map((p) => (
+            <li key={p} className="set-bad">
+              {p}
+            </li>
+          ))}
+        </ul>
+      )}
+      <ul className="set-vaults">
+        {s.vaults.map((v) => {
+          const info = infos.find((i) => i.id === v.id);
+          const primary = s.primaryVault === v.id;
+          return (
+            <li key={v.id} className={`set-vault-row ${primary ? "is-current" : ""}`}>
+              <div>
+                <b>{v.name}</b> {primary && <span className="chip">primary</span>}
+                <code className="set-path">{v.path}</code>
+                <small>{info ? `${info.notes} notes${info.unreadable ? `, ${info.unreadable} unreadable` : ""}` : "not open"}</small>
+              </div>
+              <div className="set-actions">
+                {!primary && (
+                  <button type="button" className="button" onClick={() => void act(() => api.vaultSetPrimary(v.id), `${v.name} is now primary`, "Choosing the primary vault")}>
+                    make primary
+                  </button>
+                )}
+                <button type="button" className="button" onClick={() => reveal(`vault:${v.id}`)}>
+                  show
+                </button>
+                <button
+                  type="button"
+                  className="button is-danger"
+                  onClick={() => {
+                    if (window.confirm(`Stop showing ${v.name} in HQ? Nothing in the folder is deleted.`)) void act(() => api.vaultRemove(v.id), `Removed ${v.name} from HQ`, "Removing vaults");
+                  }}
+                >
+                  remove
+                </button>
+              </div>
+            </li>
+          );
+        })}
+        {s.vaults.length === 0 && <li className="set-note">No vaults yet. Add a folder you already have, or create a new one.</li>}
+      </ul>
+
+      {candidates.data && candidates.data.some((c) => !known.has(c.path)) && (
+        <>
+          <h2 className="set-h">Found on this Mac</h2>
+          <ul className="set-vaults">
+            {candidates.data
+              .filter((c) => !known.has(c.path))
+              .map((c) => (
+                <li key={c.path}>
+                  <button type="button" className="set-vault" title={c.path} onClick={() => void act(() => api.vaultAdd(c.path), `Added ${c.name}`, "Adding vaults")}>
+                    <b>{c.name}</b>
+                    <small>{c.path}</small>
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </>
+      )}
+
+      <h2 className="set-h">Add or create</h2>
+      <div className="set-form">
+        <label className="set-field">
+          <span>folder</span>
+          <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="~/Documents/home-vault" spellCheck={false} />
+          <small>An existing folder is added as it is. A new folder gets the standard layout (00-Inbox … 10-Bookmarks, AGENTS.md).</small>
+        </label>
+        <label className="set-field">
+          <span>name (new vault)</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="home" spellCheck={false} />
+        </label>
+        <div className="set-actions">
+          <button type="button" className="button is-primary" disabled={!path.trim()} onClick={() => void act(() => api.vaultAdd(path.trim()), "Vault added", "Adding vaults").then(() => setPath(""))}>
+            add existing
+          </button>
+          <button type="button" className="button" disabled={!path.trim() || !name.trim()} onClick={() => void act(() => api.vaultCreate(path.trim(), name.trim()), "Vault created", "Creating vaults").then(() => setPath(""))}>
+            create new
+          </button>
+        </div>
+      </div>
+
+      <h2 className="set-h">Blocked folder names</h2>
+      <p className="set-note">HQ refuses a vault whose folder has one of these names, before it reads anything inside.</p>
+      <ul className="set-chips">
+        {s.blockedVaultNames.map((b) => (
+          <li key={b}>
+            <code>{b}</code>{" "}
+            <button type="button" className="link-button" aria-label={`Unblock ${b}`} onClick={() => void save({ blockedVaultNames: s.blockedVaultNames.filter((x) => x !== b) }, `Unblocked ${b}`)}>
+              ×
+            </button>
+          </li>
+        ))}
+        {s.blockedVaultNames.length === 0 && <li className="set-note">none</li>}
+      </ul>
+      <form
+        className="set-inline"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (blocked.trim()) void save({ blockedVaultNames: [...s.blockedVaultNames, blocked.trim()] }, `Blocked ${blocked.trim()}`).then((ok) => ok && setBlocked(""));
+        }}
+      >
+        <input aria-label="Folder name to block" placeholder="work-vault" value={blocked} onChange={(e) => setBlocked(e.target.value)} spellCheck={false} />
+        <button type="submit" className="button" disabled={!blocked.trim()}>
+          block
+        </button>
+      </form>
+    </>
+  );
+}
+
+function LocalAi({ s, save, copy }: { s: SettingsData; save: Save; copy: (t: string) => Promise<void> }) {
+  const [ai, setAi] = useState(s.ollama);
+  const [busy, setBusy] = useState(false);
+  const status = useCall(api.ollamaStatus, "ollama", { live: false });
+  const rec = useCall(api.ollamaRecommend, "recommend", { live: false });
+  const dirty = ai.url !== s.ollama.url || ai.chatModel !== s.ollama.chatModel || ai.embedModel !== s.ollama.embedModel;
+  const o = status.data;
+  const models = o?.models ?? [];
+
+  async function submit() {
+    setBusy(true);
+    if (await save({ ollama: ai })) status.reload();
+    setBusy(false);
+  }
+
+  const pick = (k: "chatModel" | "embedModel", label: string, hint: string) => (
+    <label className="set-field">
+      <span>{label}</span>
+      <input list={`models-${k}`} value={ai[k]} onChange={(e) => setAi({ ...ai, [k]: e.target.value })} spellCheck={false} />
+      <datalist id={`models-${k}`}>
+        {models.map((m) => (
+          <option key={m} value={m} />
+        ))}
+      </datalist>
+      <small>{hint}</small>
+    </label>
+  );
+
+  return (
+    <>
+      <p className="lede">Ask and semantic search run on a local model server (Ollama). Questions and notes never leave this Mac or your home network.</p>
+      <dl className="set-list">
+        <Row k="status">
+          {status.error ? (
+            <span className="set-bad">{errText(status.error, "Checking the model server")}</span>
+          ) : !o ? (
+            "checking…"
+          ) : (
+            <>
+              <Ok on={o.up} yes="reachable" no="not reachable" /> · <Ok on={o.chatReady} yes="answer model ready" no="answer model missing" /> · <Ok on={o.embedReady} yes="search model ready" no="search model missing" />
+              {!o.up && !o.binary && <p className="set-note">Ollama is not installed. Get it from ollama.com, then come back.</p>}
+            </>
+          )}
+        </Row>
+      </dl>
+      <div className="set-form">
+        <label className="set-field">
+          <span>server</span>
+          <input value={ai.url} onChange={(e) => setAi({ ...ai, url: e.target.value })} spellCheck={false} />
+          <small>This Mac (http://127.0.0.1:11434) or a home-network address. Anything else is refused.</small>
+        </label>
+        {pick("chatModel", "answer model", "Writes answers. Bigger is better if the Mac has the memory.")}
+        {pick("embedModel", "search model", "Finds passages by meaning. Changing it rebuilds the search index.")}
+        <div className="set-actions">
+          <button type="button" className="button is-primary" disabled={!dirty || busy} onClick={() => void submit()}>
+            {busy ? "saving…" : "save"}
+          </button>
+          <button type="button" className="button" disabled={busy} onClick={status.reload}>
+            test connection
+          </button>
+          {models.length > 0 && <small className="set-note">Installed: {models.join(", ")}</small>}
+        </div>
+      </div>
+      {rec.data && (
+        <>
+          <h2 className="set-h">Recommended for this Mac ({rec.data.memoryGb} GB)</h2>
+          <ul className="set-pulls">
+            {rec.data.pulls.map((p) => (
+              <li key={p}>
+                <code>{p}</code>{" "}
+                <button type="button" className="link-button" onClick={() => void copy(p)}>
+                  copy
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p className="set-note">HQ never installs models itself. Run these in Terminal.</p>
+        </>
+      )}
+    </>
+  );
+}
+
+function Keys({ s, save }: { s: SettingsData; save: Save }) {
+  const [keys, setKeys] = useState(s.hotkeys);
+  const dirty = keys.palette !== s.hotkeys.palette || keys.capture !== s.hotkeys.capture;
+  return (
+    <>
+      <p className="lede">Global hotkeys work from any app. Write them like Alt+Super+Space (Super is ⌘); leave one empty to turn it off.</p>
+      <div className="set-form">
+        <label className="set-field">
+          <span>palette</span>
+          <input value={keys.palette} onChange={(e) => setKeys({ ...keys, palette: e.target.value })} spellCheck={false} />
+          <small>Brings HQ forward with the palette open, or puts it away.</small>
+        </label>
+        <label className="set-field">
+          <span>quick capture</span>
+          <input value={keys.capture} onChange={(e) => setKeys({ ...keys, capture: e.target.value })} spellCheck={false} />
+          <small>Opens the small capture box: ⏎ note, ⌘⏎ task, a lone link saves a bookmark.</small>
+        </label>
+        <div className="set-actions">
+          <button type="button" className="button is-primary" disabled={!dirty} onClick={() => void save({ hotkeys: keys }, "Hotkeys saved")}>
+            save
+          </button>
+          <button type="button" className="button" disabled={!dirty} onClick={() => setKeys(s.hotkeys)}>
+            revert
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Look({ s, notify }: { s: SettingsData; notify: Notify }) {
+  const [theme, setLocal] = useState<Theme>(s.theme);
+  return (
+    <>
+      <p className="lede">Dark by default. Saved in settings, so every window and the next launch agree.</p>
+      <div className="segmented" role="group" aria-label="Theme">
+        {(["dark", "light"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={theme === t ? "is-active" : ""}
+            onClick={() => {
+              setLocal(t);
+              setTheme(t).catch((e: Error) => notify(e.message, "error"));
+            }}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+      <dl className="set-list">
+        <Row k="your words">IBM Plex Mono</Row>
+        <Row k="machine output">JetBrains Mono</Row>
+      </dl>
+    </>
   );
 }

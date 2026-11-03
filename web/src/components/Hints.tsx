@@ -1,4 +1,3 @@
-import type { Status } from "../../../server/types.ts";
 import type { View } from "../App.tsx";
 
 // The key legend for the current view, always on the last line like a TUI status bar.
@@ -8,19 +7,22 @@ const BY_VIEW: Record<View, [string, string][]> = {
   days: [["[ ]", "earlier / later"], ["t", "today"], ["s", "day, 3 days, week"]],
   tasks: [["Tab", "move between fields"], ["⏎", "add task"]],
   inbox: [["Tab", "move between items"]],
-  notes: [["f", "filter"], ["↑ ↓ ⏎", "pick"], ["e", "edit"], ["⌘S", "save"], ["r", "folder / recent"], ["o", "Obsidian"]],
+  notes: [["f", "filter"], ["↑ ↓ ⏎", "pick"], ["e", "edit"], ["⌘S", "save"], ["r", "folder / recent"], ["o", "show in Finder"]],
   ask: [["⏎", "ask"], ["⇧⏎", "search notes only"]],
 };
 
-export default function Hints({ view, status }: { view: View; status: Status | null }) {
+export default function Hints({ view }: { view: View }) {
   return (
     <footer className="hints">
       <ul>
-        <li title={status ? `Jump anywhere, ask, search or capture a thought. ${status.tips.notes} notes indexed.` : "Command palette"}>
-          <kbd>Ctrl K</kbd> palette
+        <li title="Jump anywhere, ask, search, create or capture">
+          <kbd>⌘K</kbd> palette
         </li>
         <li>
           <kbd>/</kbd> ask
+        </li>
+        <li>
+          <kbd>n</kbd> new
         </li>
         <li>
           <kbd>⌘,</kbd> settings

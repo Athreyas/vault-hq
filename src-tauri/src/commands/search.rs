@@ -21,7 +21,7 @@ use hq_core::types::{
 };
 use hq_core::vault::{scan, Vault};
 use hq_core::{util, Error, Result};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 pub const ASK_EVENT: &str = "ask://event";
 
@@ -49,7 +49,7 @@ struct Ctx {
 }
 
 impl Ctx {
-    fn load(app: &AppHandle) -> Result<Ctx> {
+    fn load<R: Runtime>(app: &AppHandle<R>) -> Result<Ctx> {
         let path_err = |e: tauri::Error| Error::Internal(format!("No app folder: {e}"));
         let support = app.path().app_data_dir().map_err(path_err)?;
         let cache = app.path().app_cache_dir().map_err(path_err)?;
@@ -77,7 +77,11 @@ impl Ctx {
 
     /// Re-read the vaults and bring the index up to date; unchanged vaults cost a scan only.
     fn index(&self) -> Arc<Index> {
-        let scans: Vec<_> = self.vaults.iter().map(|v| (v.id.clone(), scan(v))).collect();
+        let scans: Vec<_> = self
+            .vaults
+            .iter()
+            .map(|v| (v.id.clone(), scan(v)))
+            .collect();
         let ids: Vec<String> = scans.iter().map(|(id, _)| id.clone()).collect();
         let mut guard = lock(&state().index);
         let idx = Arc::make_mut(&mut guard);
@@ -96,7 +100,11 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'sta
 }
 
 #[tauri::command]
-pub async fn search(app: AppHandle, q: String, scope: Option<SearchScope>) -> Result<SearchResult> {
+pub async fn search<R: Runtime>(
+    app: AppHandle<R>,
+    q: String,
+    scope: Option<SearchScope>,
+) -> Result<SearchResult> {
     blocking(move || {
         let ctx = Ctx::load(&app)?;
         let index = ctx.index();
@@ -122,8 +130,8 @@ pub async fn search(app: AppHandle, q: String, scope: Option<SearchScope>) -> Re
 }
 
 #[tauri::command]
-pub fn ask_start(
-    app: AppHandle,
+pub fn ask_start<R: Runtime>(
+    app: AppHandle<R>,
     question: String,
     scope: Option<SearchScope>,
     conversation: Option<String>,
@@ -155,8 +163,8 @@ pub fn ask_start(
     Ok(id)
 }
 
-fn run_ask(
-    app: &AppHandle,
+fn run_ask<R: Runtime>(
+    app: &AppHandle<R>,
     question: &str,
     scope: Option<SearchScope>,
     conversation: Option<String>,
@@ -221,17 +229,17 @@ pub fn ask_cancel(id: String) -> bool {
 }
 
 #[tauri::command]
-pub async fn conversations_list(app: AppHandle) -> Result<Vec<ConversationSummary>> {
+pub async fn conversations_list<R: Runtime>(app: AppHandle<R>) -> Result<Vec<ConversationSummary>> {
     blocking(move || Ok(conversations::list(&Ctx::load(&app)?.vaults))).await
 }
 
 #[tauri::command]
-pub async fn conversation_get(app: AppHandle, id: String) -> Result<Conversation> {
+pub async fn conversation_get<R: Runtime>(app: AppHandle<R>, id: String) -> Result<Conversation> {
     blocking(move || conversations::get(&Ctx::load(&app)?.vaults, &id)).await
 }
 
 #[tauri::command]
-pub async fn ollama_status(app: AppHandle) -> Result<OllamaStatus> {
+pub async fn ollama_status<R: Runtime>(app: AppHandle<R>) -> Result<OllamaStatus> {
     blocking(move || Ok(ollama::status(&Ctx::load(&app)?.settings.ollama))).await
 }
 

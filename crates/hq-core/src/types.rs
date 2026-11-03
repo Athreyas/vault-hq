@@ -46,6 +46,42 @@ pub struct Source {
 
 // ---- C search ---------------------------------------------------------------------------
 
+// ---- D shell ----------------------------------------------------------------------------
+
+/// `app_status()`: what the window shows before any view loads.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct AppStatus {
+    pub version: String,
+    pub vaults: Vec<VaultInfo>,
+    pub primary_vault: Option<String>,
+    /// Vaults in settings that could not be opened, with the reason (blocked, folder gone).
+    pub problems: Vec<String>,
+    /// The command an agent runs to reach this vault over MCP (`<binary> mcp`).
+    pub mcp_command: String,
+}
+
+/// The `vault://changed` event: notes added, changed or removed in one vault.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultChanged {
+    pub vault: String,
+    pub rels: Vec<String>,
+}
+
+/// The `jobs://progress` event from a background job.
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct JobProgress {
+    pub job: String,
+    pub done: u32,
+    pub total: u32,
+    pub message: String,
+}
+
 /// Which notes a search or a question reads (SPEC 6).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, TS)]
 #[ts(export)]
