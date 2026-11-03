@@ -40,6 +40,22 @@ A terminal-style interface: tabs with number keys on top, a key legend at the bo
 
 Keys: `Ctrl K` palette, `⌘,` settings, `/` ask, `1`-`7` views, arrows move between Home panels and Needs items, `[` `]` `t` `s` step, jump and cycle the range in Days, `f` `e` `⌘S` `r` `o` filter, edit, save, reorder and open in Obsidian in Notes, `Esc` closes. The legend at the bottom always shows the current view's keys.
 
+## Install (2.0, the Mac app)
+
+Vault HQ 2.0 is one signed, notarized app for Apple Silicon Macs on macOS 13 (Ventura)
+or later. Install it with Homebrew:
+
+```bash
+brew install --cask athreyas/tap/vault-hq
+```
+
+or download the DMG from [GitHub Releases](https://github.com/Athreyas/vault-hq/releases)
+and check it against the SHA-256 published with it (`shasum -a 256 Vault-HQ_*.dmg`).
+The cask also puts `vault-hq` on your `PATH`, so agents can start the MCP server with
+`vault-hq mcp`. `brew uninstall --zap --cask vault-hq` removes HQ's own settings and
+caches; your vaults are never touched. How releases are made:
+[docs/v2/RELEASING.md](docs/v2/RELEASING.md).
+
 ## Setup and launch
 
 You need macOS, Node 25+, Taskwarrior and Ollama. A vault's own automation (if it has one) records which vault this Mac serves; otherwise set `VAULT_PATH` or pick the vault in Settings.
