@@ -15,6 +15,7 @@ sha2 = "0.10"
 libc = "0.2"
 walkdir = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+ureq = { version = "3", default-features = false, features = ["json"] }
 
 [dev-dependencies]
 tempfile = "3"
