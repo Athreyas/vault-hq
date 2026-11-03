@@ -600,7 +600,7 @@ mod tests {
             "http://local",
             "http://.local",
             "http://evil.local.example.com",
-            "http://127.0.0.1@evil.com",
+            "http://127.0.0.1@evil.com", // privacy-check: allow (a test that this trick is refused)
             "http://evil.com#@127.0.0.1",
             "http://127.0.0.1:11434/v1",
             "http://[2001:db8::1]:11434",
