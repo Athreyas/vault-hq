@@ -9,6 +9,7 @@ use tauri::{generate_handler, Runtime};
 
 pub mod app;
 // ---- streams: add `pub mod <area>;` below (A core, B tasks, C search, E, F, W) ----
+pub mod bookmarks;
 pub mod onboarding;
 pub mod search;
 pub mod tasks;
@@ -48,6 +49,16 @@ macro_rules! hq_commands {
             search::conversation_get,
             search::ollama_status,
             search::ollama_recommend,
+            // F bookmarks
+            bookmarks::browsers_detect,
+            bookmarks::browser_allow,
+            bookmarks::bookmarks_import,
+            bookmarks::bookmarks_query,
+            bookmarks::bookmark_add,
+            bookmarks::bookmarks_enrich,
+            bookmarks::bookmarks_enrich_cancel,
+            bookmarks::memories,
+            bookmarks::memory_dismiss,
             // E onboarding
             onboarding::onboarding_state,
             onboarding::onboarding_set_step,
