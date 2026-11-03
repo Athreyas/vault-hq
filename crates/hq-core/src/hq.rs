@@ -13,6 +13,7 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard, Weak};
 
 use crate::error::{Error, Result};
 use crate::settings::{Settings, Store};
+use crate::types::TaskInput;
 use crate::types::{
     note_id, split_note_id, CaptureKind, CaptureResult, Day, DecideResult, Home, InboxItem,
     MoveResult, Need, NoteFilter, NoteId, NoteInput, NoteSummary, NoteView, SaveResult, Source,
@@ -20,7 +21,7 @@ use crate::types::{
 };
 use crate::vault::registry::{self, Registry, Snapshot};
 use crate::vault::{watch, Vault};
-use crate::{capture, days, home, inbox, needs, notes, util};
+use crate::{capture, days, home, inbox, needs, notes, tasks, util};
 
 struct State {
     settings: Settings,
@@ -302,8 +303,8 @@ impl Hq {
 
     // ---- capture -----------------------------------------------------------------------------------
 
-    /// Quick capture. Notes land in today's capture note. Tasks and bookmarks are refused
-    /// with Unavailable until the tasks (B) and bookmarks (F) streams are routed in here.
+    /// Quick capture. Notes land in today's capture note, tasks go through the tasks
+    /// engine (B); bookmarks are refused with Unavailable until stream F is routed in here.
     pub fn capture(
         &self,
         text: &str,
@@ -315,9 +316,7 @@ impl Hq {
             CaptureKind::Note => {
                 capture::capture_note(&v, text, &util::today(), &util::now_hhmm())
             }
-            CaptureKind::Task => Err(Error::Unavailable(
-                "Capturing a task needs the tasks engine, which isn't in this build yet.".into(),
-            )),
+            CaptureKind::Task => self.capture_task(&v, text),
             CaptureKind::Bookmark => Err(Error::Unavailable(
                 "Saving a link as a bookmark isn't in this build yet. Capture it as a note instead."
                     .into(),
@@ -325,6 +324,32 @@ impl Hq {
         }?;
         self.invalidate(Some(&v.id));
         Ok(r)
+    }
+
+    /// A task from the capture box, through stream B's `add` (to `09-Planning/Tasks.md`).
+    fn capture_task(&self, v: &Vault, text: &str) -> Result<CaptureResult> {
+        let description = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        if description.is_empty() {
+            return Err(Error::Invalid("Nothing to capture.".into()));
+        }
+        let vaults = std::slice::from_ref(v);
+        let mut index = tasks::TaskIndex::build(vaults);
+        let mut ctx = tasks::mutate::Ctx {
+            vaults,
+            index: &mut index,
+            today: tasks::resolve_today(None)?,
+        };
+        let input = TaskInput {
+            description,
+            vault: Some(v.id.clone()),
+            ..Default::default()
+        };
+        let t = tasks::mutate::add(&mut ctx, &input)?;
+        Ok(CaptureResult {
+            kind: CaptureKind::Task,
+            id: t.note,
+            line: t.raw,
+        })
     }
 
     /// One `- HH:MM who · text` line in today's daily note (MCP's `log`).

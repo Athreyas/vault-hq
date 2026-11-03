@@ -70,9 +70,12 @@ fn run() {
                 Shell::degraded(dirs, &e)
             });
             let keys = shell.settings().hotkeys;
+            let tasks_cache = shell.hq.cache_dir().to_path_buf();
             // the core state the vault/notes/home commands take; the shell shares it
             app.manage(shell.hq.clone());
             app.manage(shell);
+            // B tasks: answers from the cached index until the first command scans
+            app.manage(commands::tasks::TasksState::new(tasks_cache));
 
             if cfg!(debug_assertions) {
                 let pending = commands::pending();

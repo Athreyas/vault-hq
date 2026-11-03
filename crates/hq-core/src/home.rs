@@ -146,7 +146,7 @@ fn project(vault: &Vault, n: &Note, open: &[Checkbox]) -> Project {
 
 /// Every project note (`01-Projects/`) of one vault with its open tasks.
 pub fn projects(snap: &Snapshot) -> Vec<Project> {
-    let open: Vec<Checkbox> = checkboxes::all(&snap.scan.notes)
+    let open: Vec<Checkbox> = checkboxes::all(&snap.vault.id, &snap.scan.notes)
         .into_iter()
         .filter(Checkbox::is_open)
         .collect();
@@ -210,7 +210,7 @@ pub fn home(snaps: &[Snapshot], date: &str, today: &str, phase: Phase, needs: &[
     let mut open: Vec<(&Vault, Checkbox)> = snaps
         .iter()
         .flat_map(|s| {
-            checkboxes::all(&s.scan.notes)
+            checkboxes::all(&s.vault.id, &s.scan.notes)
                 .into_iter()
                 .filter(Checkbox::is_open)
                 .map(move |c| (&s.vault, c))

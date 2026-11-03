@@ -197,7 +197,7 @@ pub fn day(snaps: &[Snapshot], date: &str) -> Day {
             d.agent_log
                 .extend(agent_log(section(&secs, AGENT_LOG), &s.vault.name));
         }
-        for c in checkboxes::all(&s.scan.notes) {
+        for c in checkboxes::all(&s.vault.id, &s.scan.notes) {
             if c.done.as_deref() == Some(date) && c.status == "done" {
                 d.completed.push(task_line(&s.vault, &c));
             } else if c.is_open() && c.due.as_deref() == Some(date) {

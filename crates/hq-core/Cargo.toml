@@ -4,6 +4,7 @@ description = "Vault HQ's core: vaults, notes, tasks, search, bookmarks. No UI."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
 publish = false
 
 [dependencies]

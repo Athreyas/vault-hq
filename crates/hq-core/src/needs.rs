@@ -99,7 +99,7 @@ fn collect(snaps: &[Snapshot], today: &str) -> Vec<Item> {
                 .unwrap_or("")
         };
 
-        for t in checkboxes::all(&s.scan.notes)
+        for t in checkboxes::all(&s.vault.id, &s.scan.notes)
             .into_iter()
             .filter(|t| t.status == "pending")
         {
@@ -107,7 +107,7 @@ fn collect(snaps: &[Snapshot], today: &str) -> Vec<Item> {
             let Some(late) = days::days_between(&due, today) else {
                 continue;
             };
-            let key = t.id.clone().unwrap_or_else(|| t.line.trim().to_string());
+            let key = t.key.clone();
             let mut n = if late > 0 {
                 let mut n = base(
                     NeedKind::Overdue,
@@ -342,14 +342,13 @@ pub fn decide(
                 .task
                 .as_ref()
                 .ok_or_else(|| Error::Invalid("This item is not a task.".into()))?;
-            let path = note_path(&task.rel)?;
             let next_week = days::add_days(today, 7);
             let (edit, result) = match outcome_key {
-                "done" => (checkboxes::Edit::Done(today), "Marked done"),
+                "done" => (checkboxes::Edit::Done, "Marked done"),
                 "redate" => (checkboxes::Edit::Due(&next_week), "Moved to next week"),
-                _ => (checkboxes::Edit::Cancel(today), "Dropped"),
+                _ => (checkboxes::Edit::Cancel, "Dropped"),
             };
-            checkboxes::edit(&path, task, edit, today)?;
+            checkboxes::edit(vault, task, edit, today)?;
             (result.to_string(), None)
         }
         "archive" | "decline" => {
@@ -507,8 +506,11 @@ mod tests {
         .unwrap();
         assert_eq!(d.result, "Moved to next week");
         let garden = std::fs::read_to_string(dir.path().join("01-Projects/garden.md")).unwrap();
+        let late = garden.lines().find(|l| l.contains("Late one")).unwrap();
         assert!(
-            garden.contains("- [ ] Late one 📅 2026-11-09 🆔 late01"),
+            late.starts_with("- [ ] ")
+                && late.contains("📅 2026-11-09")
+                && late.contains("🆔 late01"),
             "{garden}"
         );
         let log = std::fs::read_to_string(dir.path().join(layout::DECISION_LOG)).unwrap();
@@ -547,8 +549,9 @@ mod tests {
         ));
         decide(snaps, &due.id, "done", "", TODAY, "09:05", &none).unwrap();
         let garden = std::fs::read_to_string(dir.path().join("01-Projects/garden.md")).unwrap();
+        let soon = garden.lines().find(|l| l.contains("Soon")).unwrap();
         assert!(
-            garden.contains("- [x] Soon ⏫ 📅 2026-11-03 ✅ 2026-11-02"),
+            soon.starts_with("- [x] ") && soon.contains("✅ 2026-11-02"),
             "{garden}"
         );
     }

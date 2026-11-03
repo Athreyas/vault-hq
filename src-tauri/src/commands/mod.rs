@@ -18,6 +18,7 @@ pub mod notes;
 pub mod vaults;
 // C search
 pub mod search;
+pub mod tasks;
 
 mod names;
 pub use names::{CAPTURE_WINDOW, COMMANDS};
@@ -57,6 +58,17 @@ macro_rules! hq_commands {
             home::needs_decide,
             home::inbox,
             home::inbox_archive,
+            // B tasks
+            tasks::tasks_query,
+            tasks::task_add,
+            tasks::task_update,
+            tasks::task_done,
+            tasks::task_cancel,
+            tasks::task_delete,
+            tasks::task_annotate,
+            tasks::task_start,
+            tasks::tasks_stats,
+            tasks::tasks_import_taskwarrior,
             // C search
             search::search,
             search::ask_start,

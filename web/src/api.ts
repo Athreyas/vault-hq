@@ -28,13 +28,23 @@ import type { VaultLayout } from "./bindings/VaultLayout.ts";
 import type { Current } from "./bindings/Current.ts";
 import type { JobProgress } from "./bindings/JobProgress.ts";
 import type { Settings } from "./bindings/Settings.ts";
+import type { Priority } from "./bindings/Priority.ts";
 import type { Source } from "./bindings/Source.ts";
+import type { StatsQuery } from "./bindings/StatsQuery.ts";
+import type { Task } from "./bindings/Task.ts";
+import type { TaskGroups } from "./bindings/TaskGroups.ts";
+import type { TaskImportReport } from "./bindings/TaskImportReport.ts";
+import type { TaskInput } from "./bindings/TaskInput.ts";
+import type { TaskPatch } from "./bindings/TaskPatch.ts";
+import type { TaskQuery } from "./bindings/TaskQuery.ts";
+import type { TaskStats } from "./bindings/TaskStats.ts";
 import type { Theme } from "./bindings/Theme.ts";
 import type { VaultChanged } from "./bindings/VaultChanged.ts";
 import type { VaultInfo } from "./bindings/VaultInfo.ts";
 import type * as S from "./shapes.ts";
 
 export type { AppStatus, Current, JobProgress, Settings, Source, Theme, VaultChanged, VaultInfo };
+export type { Priority, StatsQuery, Task, TaskGroups, TaskImportReport, TaskInput, TaskPatch, TaskQuery, TaskStats };
 export type {
   CaptureKind,
   CaptureResult,
@@ -64,15 +74,9 @@ export type {
   ConversationSummary,
   NoteId,
   OllamaStatus,
-  Priority,
   Recommendation,
   SearchHit,
   SearchScope,
-  Task,
-  TaskGroups,
-  TaskInput,
-  TaskPatch,
-  TaskQuery,
 } from "./shapes.ts";
 
 // ---- errors ------------------------------------------------------------------------------
@@ -154,11 +158,16 @@ interface Commands {
   inbox: [None, InboxItem[]];
   inbox_archive: [{ id: string }, MoveResult];
   // tasks
-  tasks_query: [{ query: S.TaskQuery }, S.TaskGroups];
-  task_add: [{ input: S.TaskInput }, S.Task];
-  task_update: [{ id: string; patch: S.TaskPatch }, S.Task];
-  task_done: [{ id: string }, unknown];
-  task_delete: [{ id: string }, unknown];
+  tasks_query: [{ query: TaskQuery }, TaskGroups];
+  task_add: [{ input: TaskInput }, Task];
+  task_update: [{ id: string; patch: TaskPatch }, Task];
+  task_done: [{ id: string }, Task];
+  task_cancel: [{ id: string }, Task];
+  task_delete: [{ id: string }, null];
+  task_annotate: [{ id: string; text: string }, Task];
+  task_start: [{ id: string }, Task];
+  tasks_stats: [{ query: StatsQuery }, TaskStats];
+  tasks_import_taskwarrior: [{ dryRun: boolean }, TaskImportReport];
   // search
   search: [{ q: string; scope: S.SearchScope }, S.SearchHit[]];
   ask_start: [{ question: string; scope: S.SearchScope; conversation?: string }, string];
@@ -184,6 +193,52 @@ export async function call<K extends CommandName>(cmd: K, args: Commands[K][0]):
 }
 
 const none: None = {};
+
+/** `base` with every field of `part` that is not undefined. */
+function fill<T extends object>(base: T, part: Partial<T>): T {
+  return Object.assign(base, Object.fromEntries(Object.entries(part).filter(([, v]) => v !== undefined)));
+}
+
+export function emptyTaskQuery(): TaskQuery {
+  return {
+    status: [],
+    project: null,
+    tagsAll: [],
+    tagsAny: [],
+    tagsNone: [],
+    priority: [],
+    noPriority: false,
+    dueFrom: null,
+    dueTo: null,
+    scheduledFrom: null,
+    scheduledTo: null,
+    text: null,
+    vaults: [],
+    includeHidden: false,
+    blocked: null,
+    sort: "urgency",
+    group: "none",
+    limit: null,
+    today: null,
+  };
+}
+
+export function emptyTaskInput(): TaskInput {
+  return {
+    description: "",
+    tags: [],
+    project: null,
+    note: null,
+    vault: null,
+    priority: null,
+    start: null,
+    scheduled: null,
+    due: null,
+    recur: null,
+    depends: [],
+    waiting: false,
+  };
+}
 
 /** Typed shorthands, so a view reads `api.home(date)`, not `call("home", { date })`. */
 export const api = {
@@ -219,11 +274,18 @@ export const api = {
   inbox: () => call("inbox", none),
   inboxArchive: (id: string) => call("inbox_archive", { id }),
 
-  tasks: (query: S.TaskQuery = {}) => call("tasks_query", { query }),
-  taskAdd: (input: S.TaskInput) => call("task_add", { input }),
-  taskUpdate: (id: string, patch: S.TaskPatch) => call("task_update", { id, patch }),
+  // the Rust types take every field; a view names only what it sets
+  tasks: (query: Partial<TaskQuery> = {}) => call("tasks_query", { query: fill(emptyTaskQuery(), query) }),
+  taskAdd: (input: Partial<TaskInput> & { description: string }) => call("task_add", { input: fill(emptyTaskInput(), input) }),
+  taskUpdate: (id: string, patch: TaskPatch) => call("task_update", { id, patch }),
   taskDone: (id: string) => call("task_done", { id }),
+  taskCancel: (id: string) => call("task_cancel", { id }),
   taskDelete: (id: string) => call("task_delete", { id }),
+  taskAnnotate: (id: string, text: string) => call("task_annotate", { id, text }),
+  /** Starts the task, or stops it when it is already started. */
+  taskStart: (id: string) => call("task_start", { id }),
+  tasksStats: (query: Partial<StatsQuery> = {}) => call("tasks_stats", { query: { days: null, project: null, tag: null, vaults: [], today: null, ...query } }),
+  tasksImportTaskwarrior: (dryRun: boolean) => call("tasks_import_taskwarrior", { dryRun }),
 
   search: (q: string, scope: S.SearchScope = {}) => call("search", { q, scope }),
   askStart: (question: string, scope: S.SearchScope = {}, conversation?: string) => call("ask_start", { question, scope, conversation }),

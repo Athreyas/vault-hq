@@ -8,42 +8,7 @@ export type NoteId = string; // "<vaultId>:<vault-relative path>"
 
 // ---- A core: real types are in ./bindings (re-exported from api.ts) ------------------
 
-// ---- B tasks ---------------------------------------------------------------------------
-
-export type Priority = "highest" | "high" | "medium" | "low" | "lowest";
-
-export interface Task {
-  id: string;
-  description: string;
-  status: string;
-  priority: Priority | null;
-  due: string | null;
-  project: string | null;
-  note: NoteId;
-  urgency: number;
-  tags: string[];
-}
-
-export interface TaskQuery {
-  status?: string[];
-  text?: string;
-  group?: string;
-  sort?: string;
-}
-
-export interface TaskGroups {
-  groups: { key: string; label: string; tasks: Task[] }[];
-}
-
-export interface TaskInput {
-  description: string;
-  project?: string;
-  due?: string;
-  priority?: Priority;
-  vault?: string;
-}
-
-export type TaskPatch = Partial<Omit<TaskInput, "vault">>;
+// ---- B tasks: real types in web/src/bindings (Task, TaskQuery, …), re-exported by api.ts ----
 
 // ---- C search and local AI -------------------------------------------------------------
 

@@ -248,10 +248,12 @@ fn capture_appends_safely_from_many_writers() {
     assert_eq!(text.matches("type: capture").count(), 1, "one header");
     let lines: Vec<_> = text.lines().filter(|l| l.contains(" thought ")).collect();
     assert_eq!(lines.len(), 80, "every capture landed once");
-    assert!(matches!(
-        f.hq.capture("buy seeds", Some(CaptureKind::Task), None),
-        Err(Error::Unavailable(_))
-    ));
+    // a task capture goes through the tasks engine to the loose-tasks note
+    let t =
+        f.hq.capture("buy seeds", Some(CaptureKind::Task), None)
+            .unwrap();
+    assert_eq!(t.id, format!("{}:09-Planning/Tasks.md", f.vault));
+    assert!(read(&f.root, "09-Planning/Tasks.md").contains("- [ ] buy seeds"));
     assert!(matches!(
         f.hq.capture("https://example.com", None, None),
         Err(Error::Unavailable(_))
