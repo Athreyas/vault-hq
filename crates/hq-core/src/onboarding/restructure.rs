@@ -122,6 +122,12 @@ pub fn apply(plan: &ImportPlan) -> Result<RestructureReport> {
                 base_hash,
                 tags,
             } => run.edit(rel, base_hash, |text| {
+                if tags
+                    .iter()
+                    .any(|t| t.is_empty() || t.contains([',', '[', ']', '\n', '\r']))
+                {
+                    return Err(Error::Invalid("a suggested tag is not a plain tag".into()));
+                }
                 Ok(frontmatter::set(
                     text,
                     "tags",
@@ -149,7 +155,24 @@ pub fn apply(plan: &ImportPlan) -> Result<RestructureReport> {
     Ok(run.report)
 }
 
+/// The plan comes back from the UI: a key or value that could break out of its line is refused.
+fn check_prop(key: &str, value: &str) -> Result<()> {
+    let key_ok = !key.is_empty()
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if !key_ok || value.contains(['\n', '\r']) {
+        return Err(Error::Invalid(format!(
+            "\"{key}\" is not a frontmatter key HQ writes"
+        )));
+    }
+    Ok(())
+}
+
 fn add_props(text: &str, add: &[Prop]) -> Result<String> {
+    for p in add {
+        check_prop(&p.key, &p.value)?;
+    }
     if frontmatter::parse(text).len == 0 {
         let props: Vec<(&str, String)> = add
             .iter()
@@ -588,6 +611,35 @@ mod tests {
         );
         assert!(root.join("00-Inbox/AGENTS.md").exists());
         assert!(!root.join("02-Areas").exists(), "empty created folders go");
+    }
+
+    #[test]
+    fn refuses_props_that_break_lines() {
+        assert!(check_prop("title", "ok: fine").is_ok());
+        assert!(check_prop("ti tle", "x").is_err());
+        assert!(check_prop("title", "x\n---\nevil: 1").is_err());
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.md"), "body\n").unwrap();
+        let plan = ImportPlan {
+            root: dir.path().to_string_lossy().into_owned(),
+            items: vec![PlanItem {
+                id: "tag:a.md".into(),
+                group: "tags".into(),
+                summary: String::new(),
+                ticked: true,
+                reversible: true,
+                action: PlanAction::AddTags {
+                    rel: "a.md".into(),
+                    base_hash: sha256("body\n"),
+                    tags: vec!["x]\ny".into()],
+                },
+            }],
+        };
+        assert_eq!(apply(&plan).unwrap().skipped.len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("a.md")).unwrap(),
+            "body\n"
+        );
     }
 
     #[test]
