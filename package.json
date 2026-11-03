@@ -30,5 +30,12 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.5"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "author": {
+    "name": "Athreyas",
+    "url": "https://monk97.me"
+  },
+  "contributors": [
+    "Claude Code (https://claude.com/claude-code)"
+  ]
 }
