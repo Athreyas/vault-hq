@@ -1,22 +1,31 @@
-//! Where an action item belongs and what it is about: a project note it names (filed in
-//! its `## Tasks`), the notes and bookmarks the existing search finds for it (linked in a
-//! `related:` annotation), and their tags (offered, not applied).
+//! Where an action item belongs and what it is about: a project note it names by title or
+//! file name (filed in its `## Tasks`), the notes and bookmarks the existing search finds
+//! for it (linked in a `related:` annotation), and their tags (offered, not applied).
 
 use std::collections::HashSet;
 
 use crate::error::Result;
-use crate::search::{chunk::Chunk, rank, Index, Semantic};
-use crate::types::{note_id, HitKind, RelatedLink, ScopeKinds, SearchScope};
+use crate::search::chunk::{tokenize, Chunk};
+use crate::search::{rank, Index, Semantic};
+use crate::types::{note_id, RelatedLink, ScopeKinds, SearchScope};
 
 /// Related links shown at most.
 pub const MAX_RELATED: usize = 5;
 /// Scores below these are not "about the same thing". Keyword-only scores top out at
 /// 0.45 × folder weight, so they need a lower bar than blended ones.
-pub const RELATED_MIN_SEMANTIC: f64 = 0.5;
+/// (Blended scores of unrelated notes sit around 0.25–0.45 with nomic-embed-text.)
+pub const RELATED_MIN_SEMANTIC: f64 = 0.4;
 pub const RELATED_MIN_KEYWORDS: f64 = 0.18;
-/// A project note found only by search (not by name) must score at least this, with
-/// embeddings on; without them only a match by name files a task in a project.
-pub const PROJECT_MIN_SEMANTIC: f64 = 0.75;
+/// Links scoring at least this are ticked by default; the rest are offered unticked.
+/// (Embedding similarity in a small vault is noisy: "book the dentist" is near a book club.)
+pub const RELATED_TICK_SEMANTIC: f64 = 0.75;
+pub const RELATED_TICK_KEYWORDS: f64 = 0.35;
+/// Logs, not subjects: a day's notes or a capture mention everything once.
+const NOT_RELATED: &[&str] = &[
+    "09-Planning/Daily/",
+    "00-Inbox/",
+    "06-Memory/conversations/",
+];
 const GENERIC_TAGS: &[&str] = &[
     "project",
     "conversation",
@@ -84,9 +93,9 @@ pub fn projects(index: &Index, vaults: &[String]) -> Vec<ProjectNote> {
         .collect()
 }
 
-/// The project a sentence names: its title or file name as whole words ("the Katha app"
-/// finds `katha-app.md` titled "Katha app"). The longest name wins, so "Katha app v2"
-/// beats "Katha".
+/// The project a sentence names: its title or file name as whole words ("the Lantern app"
+/// finds `lantern-app.md` titled "Lantern app"). The longest name wins, so "Lantern app v2"
+/// beats "Lantern".
 pub fn by_name(projects: &[ProjectNote], text: &str, hint: Option<&str>) -> Option<ProjectNote> {
     let hay = words(text);
     let hint_words = hint.map(words).unwrap_or_default();
@@ -120,7 +129,9 @@ pub fn link(
     today: &str,
 ) -> Result<Linked> {
     let all = projects(index, vaults);
-    let mut project = by_name(&all, text, hint);
+    // only a project the text names gets the task: search alone confuses "book the
+    // dentist" with a book club, and a wrong note is worse than the loose list
+    let project = by_name(&all, text, hint);
     let scope = SearchScope {
         vaults: vaults.to_vec(),
         kinds: ScopeKinds::Both,
@@ -138,27 +149,22 @@ pub fn link(
     let mut related = Vec::new();
     let mut tag_sources: Vec<Vec<String>> = Vec::new();
     if let Some(r) = &ranked {
-        let min = if r.semantic {
-            RELATED_MIN_SEMANTIC
+        let (min, tick) = if r.semantic {
+            (RELATED_MIN_SEMANTIC, RELATED_TICK_SEMANTIC)
         } else {
-            RELATED_MIN_KEYWORDS
+            (RELATED_MIN_KEYWORDS, RELATED_TICK_KEYWORDS)
         };
-        if project.is_none() && r.semantic {
-            project = r
-                .picked
-                .iter()
-                .map(|(i, s)| (&index.chunks()[*i], *s))
-                .find(|(c, s)| is_project(c) && *s >= PROJECT_MIN_SEMANTIC)
-                .and_then(|(c, _)| {
-                    all.iter()
-                        .find(|p| p.vault == c.vault && p.rel == c.rel)
-                        .cloned()
-                });
-        }
+        // a related note must share a real word with the task, not only a vague likeness
+        let words: HashSet<String> = tokenize(query)
+            .into_iter()
+            .filter(|w| w.chars().count() >= 4)
+            .collect();
         let mut seen = HashSet::new();
         for (i, score) in &r.picked {
             let c = &index.chunks()[*i];
             if *score < min
+                || NOT_RELATED.iter().any(|p| c.rel.starts_with(p))
+                || !c.tokens.iter().any(|t| words.contains(t))
                 || project
                     .as_ref()
                     .is_some_and(|p| p.vault == c.vault && p.rel == c.rel)
@@ -174,7 +180,7 @@ pub fn link(
                     title: c.title.clone(),
                     kind: c.kind,
                     score: (score * 100.0).round() / 100.0,
-                    include: c.kind == HitKind::Bookmark || related.len() < 3,
+                    include: *score >= tick,
                 });
             }
         }

@@ -139,6 +139,7 @@ serialized as `"<vaultId>:<rel>"`. The UI and MCP always use this form.
 | start | `🛫 date` | start |
 | scheduled | `⏳ date` | scheduled |
 | due | `📅 date` | due |
+| due time | `⏰ HH:MM` (24-hour, local; only with `📅`; HQ writes it right after `📅`) | due (time part) |
 | done / cancelled | `✅ date` / `❌ date` | end |
 | recurrence | `🔁 every day|week|month|year|N days|weekday` | recur |
 | id / depends | `🆔 id` (6 chars `[a-z0-9]`), `⛔ id,id` | uuid / depends |
@@ -146,6 +147,9 @@ serialized as `"<vaultId>:<rel>"`. The UI and MCP always use this form.
 | annotations | indented `- ` lines directly under the task | annotate |
 
 Every open task HQ touches gets a `🆔`. Ids are unique per vault.
+
+A time is a reminder: `- [ ] Call the bank 📅 2026-11-06 ⏰ 09:00 🆔 k3x9qa`. Clearing the
+due date clears the time; a malformed time (`⏰ 9:00`, `⏰ 25:00`) stays plain text.
 
 ### 4.2 Engine (`hq_core::tasks`)
 - Parse every in-scope note (excluded: `08-Archive/`, `_templates/`, `00-Inbox/` session
@@ -157,7 +161,13 @@ Every open task HQ touches gets a `🆔`. Ids are unique per vault.
 - **Urgency** (Taskwarrior's defaults, so it feels familiar): due (12.0 scaled by
   proximity, overdue = full), priority H 6.0 / M 3.9 / L 1.8, started 4.0, blocking 8.0,
   blocked −5.0, scheduled 5.0 when past, age 2.0 (over a year), tags 1.0 per tag up to 3,
-  project 1.0, waiting −3.0, annotations 1.0.
+  project 1.0, waiting −3.0, annotations 1.0. With a `⏰` time the due proximity counts in
+  fractions of a day, so a task is overdue once its time has passed; sorting by due puts
+  timed tasks before untimed ones on the same day.
+- **Reminders**: the app checks open tasks with `⏰` every 30 s and shows a macOS
+  notification at that time, once per task and time (state in `reminders.json`, section
+  13; shown up to 6 h late, never older). Clicking it opens HQ on the task. Notification
+  permission is asked the first time a timed task exists.
 - **Mutations**: add (to a project note's `## Tasks` section, or `09-Planning/Tasks.md`),
   update fields, start/stop, done (recurring: insert the next occurrence above), cancel,
   delete (removes the line), annotate, move between notes. All go through
@@ -195,6 +205,20 @@ Every open task HQ touches gets a `🆔`. Ids are unique per vault.
   `06-Memory/conversations/YYYY-MM-DD-<slug>.md` (`type: conversation`, `author: human`),
   so it is searchable knowledge, not app state. Follow-ups send the last N turns.
 - Scope: all vaults or chosen ones; all time or a window of days; notes, bookmarks or both.
+- **Action items** (Ask, and quick capture's ⌘Enter): "add a task to build the new feature
+  for the Lantern app tomorrow at 5PM", "remind me to call the bank Friday 9am".
+  1. Detect with rules (`add a task`, `todo:`, `remind me` … → action; an imperative with a
+     day or time → maybe, the model decides; questions → no).
+  2. Extract with the chat model using structured output (`format`: a JSON schema of
+     description, due date, due time, project, tags, priority, reminder). HQ's own date
+     parser (today/tomorrow, weekdays, next week/month, month-day dates, in N days/hours,
+     5pm/17:00/9am/noon) reads the same text; where they disagree on the day or time the
+     parser wins, and without a model it is used alone. A reminder with no time is 09:00.
+  3. Link: a project note named in the text (title or file name) or, with embeddings, a
+     strongly matching one gets the task in its `## Tasks`; otherwise the primary vault's
+     `09-Planning/Tasks.md`. Related notes and bookmarks above a score threshold become a
+     `related: [[a]], [[b]]` annotation; the matched notes' tags are offered.
+  4. Nothing is written until the user confirms the editable card (`action_add`).
 
 ## 7. Local AI (Ollama)
 
@@ -270,13 +294,13 @@ All types live in `hq-core/src/types.rs` and are exported to TypeScript. Errors 
 | capture | `capture(text, kind?: "note"|"task"|"bookmark", vault?)` |
 | home | `home(date?) -> Home`, `days(from, span) -> Day[]`, `needs() -> Need[]`, `needs_decide(id, outcome, why)`, `inbox() -> InboxItem[]`, `inbox_archive(id)` |
 | tasks | `tasks_query(TaskQuery) -> TaskGroups`, `task_add(TaskInput)`, `task_update(id, TaskPatch)`, `task_done(id)`, `task_cancel(id)`, `task_delete(id)`, `task_annotate(id, text)`, `task_start(id)`, `tasks_stats(StatsQuery) -> TaskStats`, `tasks_import_taskwarrior(dry_run) -> ImportReport` |
-| search | `search(q, scope)`, `ask_start(question, scope, conversation?) -> id`, `ask_cancel(id)`, `conversations_list()`, `conversation_get(id)` |
+| search | `search(q, scope)`, `ask_start(question, scope, conversation?) -> id`, `ask_cancel(id)`, `conversations_list()`, `conversation_get(id)`, `action_draft(text, force?) -> ActionDraft` (writes nothing), `action_add(draft) -> ActionAdded` |
 | ai | `ollama_status() -> OllamaStatus`, `ollama_recommend() -> Recommendation` |
 | bookmarks | `browsers_detect() -> BrowserSource[]`, `browser_allow(source_id, allowed)`, `bookmarks_import(source_id, dry_run) -> ImportReport`, `bookmarks_query(q, filter)`, `bookmark_add(url, note?)`, `bookmarks_enrich(ids?)`, `memories(date, salt) -> Memory[]`, `memory_dismiss(id)` |
 | onboarding | `onboarding_state()`, `onboarding_set_step(step)`, `agents_catalog() -> Agent[]`, `agent_prompt(agent_id, vault_id) -> String`, `agent_config_preview(agent_id) -> ConfigDiff`, `agent_config_apply(agent_id)`, `import_analyze(path) -> ImportAnalysis`, `import_apply(plan) -> ImportReport` |
 | widgets | `widgets_catalog() -> WidgetCatalogEntry[]`, `widgets_layout_get()`, `widgets_layout_set(layout)`, `widget_data(kind, config) -> WidgetData` |
 
-**Events** (`listen`): `vault://changed {vault, rels}`, `ask://event`, `jobs://progress {job, done, total, message}`, `capture://open`.
+**Events** (`listen`): `vault://changed {vault, rels}`, `ask://event`, `jobs://progress {job, done, total, message}`, `capture://open`, `tasks://open key` (a reminder was clicked).
 
 ## 11. Onboarding (first run; re-runnable from Settings)
 
@@ -309,7 +333,7 @@ user's interval, minimum 60 s), `clock`. Layout and configs in settings.
 ## 13. Settings, files, privacy
 
 - App files: `~/Library/Application Support/local.vaulthq.desktop/` (settings.json,
-  conversations UI state), cache `~/Library/Caches/local.vaulthq.desktop/` (vectors, task
+  conversations UI state, reminders.json: which task reminders were shown), cache `~/Library/Caches/local.vaulthq.desktop/` (vectors, task
   index). Never inside a vault except `.vault-hq/vault.json` and notes.
 - `Settings`: vaults[], primaryVault, blockedVaultNames[], ollama{url, chatModel,
   embedModel}, theme, hotkeys{palette, capture}, browsers{allowed per source},

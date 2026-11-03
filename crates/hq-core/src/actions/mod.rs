@@ -1,5 +1,5 @@
 //! Action items from Ask and quick capture: "add a task to build the new feature for the
-//! Katha app tomorrow at 5PM", "remind me to call the bank Friday 9am".
+//! Lantern app tomorrow at 5PM", "remind me to call the bank Friday 9am".
 //!
 //! 1. `detect`: cheap rules say whether the text is an action ("add a task", "remind me",
 //!    "todo:" …), might be one (an imperative with a date), or is not.
@@ -228,13 +228,7 @@ pub fn read_rules(text: &str, skip: usize, reminder: bool, now: NaiveDateTime) -
             }
         }
     }
-    let mut description = when::tidy(desc.trim_start_matches([',', ':', '-', ' ']));
-    if description.starts_with(|c: char| c.is_lowercase()) {
-        let mut cs = description.chars();
-        if let Some(f) = cs.next() {
-            description = f.to_uppercase().chain(cs).collect();
-        }
-    }
+    let description = capitalize(&when::tidy(desc.trim_start_matches([',', ':', '-', ' '])));
     RuleRead {
         description,
         due: w.date,
@@ -242,6 +236,15 @@ pub fn read_rules(text: &str, skip: usize, reminder: bool, now: NaiveDateTime) -
         tags,
         priority,
         reminder,
+    }
+}
+
+/// A task reads as a sentence: first letter up, the rest as written.
+fn capitalize(s: &str) -> String {
+    let mut cs = s.chars();
+    match cs.next() {
+        Some(f) if f.is_lowercase() => f.to_uppercase().chain(cs).collect(),
+        _ => s.to_string(),
     }
 }
 
@@ -264,6 +267,8 @@ pub struct Reconciled {
     pub due: Option<String>,
     pub time: Option<String>,
     pub tags: Vec<String>,
+    /// Tags the model suggested; shown as suggestions.
+    pub model_tags: Vec<String>,
     pub priority: Option<Priority>,
     pub reminder: bool,
     pub project_hint: Option<String>,
@@ -334,10 +339,15 @@ pub fn reconcile(
     if r.priority.is_none() {
         r.priority = m.priority.as_deref().and_then(priority_from);
     }
+    // the model's tags are offered, not applied: small models tag every noun
     for t in &m.tags {
         let t = clean_tag(t).to_lowercase();
-        if !t.is_empty() && !r.tags.contains(&t) && r.tags.len() < 5 {
-            r.tags.push(t);
+        if !t.is_empty()
+            && !r.tags.contains(&t)
+            && !r.model_tags.contains(&t)
+            && r.model_tags.len() < 3
+        {
+            r.model_tags.push(t);
         }
     }
     r.reminder |= m.reminder;
@@ -418,6 +428,7 @@ pub fn draft(text: &str, force: bool, ctx: DraftCtx<'_>) -> Result<ActionDraft> 
     if r.description.is_empty() {
         r.description = when::tidy(&text[skip.min(text.len())..]);
     }
+    r.description = capitalize(&r.description);
     if r.reminder && r.time.is_none() {
         if r.due.is_some() {
             r.time = Some(REMINDER_HOUR.into());
@@ -450,11 +461,13 @@ pub fn draft(text: &str, force: bool, ctx: DraftCtx<'_>) -> Result<ActionDraft> 
             )
         }
     };
-    let suggested_tags = linked
-        .suggested_tags
-        .into_iter()
-        .filter(|t| !r.tags.contains(t))
-        .collect();
+    let mut suggested_tags: Vec<String> = Vec::new();
+    for t in r.model_tags.iter().chain(&linked.suggested_tags) {
+        if !r.tags.contains(t) && !suggested_tags.contains(t) {
+            suggested_tags.push(t.clone());
+        }
+    }
+    suggested_tags.truncate(8);
     Ok(ActionDraft {
         is_action: true,
         text: text.to_string(),
@@ -537,7 +550,7 @@ mod tests {
     fn detection() {
         let cases = [
             (
-                "Add a task to build new feature for the Katha app tomorrow at 5PM",
+                "Add a task to build new feature for the Lantern app tomorrow at 5PM",
                 Intent::Action,
             ),
             ("remind me to call the bank Friday 9am", Intent::Action),
@@ -560,10 +573,10 @@ mod tests {
 
     #[test]
     fn rules_alone() {
-        let t = "Add a task to build new feature for the Katha app tomorrow at 5PM #dev urgent";
+        let t = "Add a task to build new feature for the Lantern app tomorrow at 5PM #dev urgent";
         let (_, skip, rem) = detect(t, now());
         let r = read_rules(t, skip, rem, now());
-        assert_eq!(r.description, "Build new feature for the Katha app");
+        assert_eq!(r.description, "Build new feature for the Lantern app");
         assert_eq!(r.due, NaiveDate::from_ymd_opt(2026, 11, 4));
         assert_eq!(r.time, NaiveTime::from_hms_opt(17, 0, 0));
         assert_eq!(r.tags, vec!["dev"]);
@@ -590,7 +603,8 @@ mod tests {
         assert_eq!(r.due.as_deref(), Some("2026-11-06"));
         assert_eq!(r.time.as_deref(), Some("09:00"));
         assert_eq!(r.notes.len(), 1);
-        assert_eq!(r.tags, vec!["finance"]);
+        assert!(r.tags.is_empty());
+        assert_eq!(r.model_tags, vec!["finance"]);
         assert_eq!(r.priority, Some(Priority::Low));
         // a gap the rules left is filled, a past day is refused, a bad time ignored
         let rules = read_rules("call mum at the end of the month", 0, false, now());
@@ -626,19 +640,19 @@ mod tests {
             &v.id,
             &[
                 note(
-                    "01-Projects/katha-app.md",
-                    &[("title", "Katha app"), ("type", "project"), ("tags", "[katha, mobile]")],
-                    "## Plan\nThe Katha app tells stories; next is the reading-mode feature.\n\n## Tasks\n",
+                    "01-Projects/lantern-app.md",
+                    &[("title", "Lantern app"), ("type", "project"), ("tags", "[lantern, mobile]")],
+                    "## Plan\nThe Lantern app tells stories; next is the reading-mode feature.\n\n## Tasks\n",
                 ),
                 note(
-                    "05-References/katha-design.md",
-                    &[("title", "Katha design notes"), ("tags", "[design, katha]")],
-                    "Design notes for the Katha app: the reading mode, fonts and the new feature list.\n",
+                    "05-References/lantern-design.md",
+                    &[("title", "Lantern design notes"), ("tags", "[design, lantern]")],
+                    "Design notes for the Lantern app: the reading mode, fonts and the new feature list.\n",
                 ),
                 note(
                     "10-Bookmarks/chrome/swiftui-reader.md",
                     &[("title", "SwiftUI reader layouts"), ("type", "bookmark"), ("url", "https://example.com/reader")],
-                    "Building a reading feature in SwiftUI for a story app like Katha.\n",
+                    "Building a reading feature in SwiftUI for a story app like Lantern.\n",
                 ),
                 note(
                     "01-Projects/garden.md",
@@ -654,12 +668,12 @@ mod tests {
     fn files_in_the_named_project_and_links_related() {
         let (_d, v, idx) = fixture();
         let m = FakeModel::new(json!({
-            "is_action": true, "description": "Build new feature for the Katha app",
-            "due_date": "2026-11-04", "due_time": "17:00", "project": "Katha app",
+            "is_action": true, "description": "Build new feature for the Lantern app",
+            "due_date": "2026-11-04", "due_time": "17:00", "project": "Lantern app",
             "tags": [], "priority": null, "reminder": false
         }));
         let d = draft(
-            "Add a task to build new feature for the Katha app tomorrow at 5PM",
+            "Add a task to build new feature for the Lantern app tomorrow at 5PM",
             false,
             DraftCtx {
                 index: &idx,
@@ -676,18 +690,18 @@ mod tests {
         assert_eq!(d.source, "model");
         assert_eq!(
             d.note.as_deref(),
-            Some(note_id(&v.id, "01-Projects/katha-app.md").as_str())
+            Some(note_id(&v.id, "01-Projects/lantern-app.md").as_str())
         );
-        assert_eq!(d.note_title, "Katha app");
+        assert_eq!(d.note_title, "Lantern app");
         assert_eq!(
             (d.due.as_deref(), d.due_time.as_deref()),
             (Some("2026-11-04"), Some("17:00"))
         );
         assert!(d.project.is_none(), "the note implies the project");
         let stems: Vec<&str> = d.related.iter().map(|r| r.stem.as_str()).collect();
-        assert!(stems.contains(&"katha-design"), "{stems:?}");
+        assert!(stems.contains(&"lantern-design"), "{stems:?}");
         assert!(
-            !stems.contains(&"katha-app"),
+            !stems.contains(&"lantern-app"),
             "the project note itself is not 'related'"
         );
         assert!(!stems.contains(&"garden"));
@@ -695,13 +709,13 @@ mod tests {
             d.related.iter().any(|r| r.kind == HitKind::Bookmark),
             "{stems:?}"
         );
-        assert!(d.suggested_tags.contains(&"katha".to_string()));
+        assert!(d.suggested_tags.contains(&"lantern".to_string()));
         assert!(d.suggested_tags.contains(&"mobile".to_string()));
         let input = to_input(&d).unwrap();
         assert_eq!(input.note, d.note);
         assert_eq!(input.due_time.as_deref(), Some("17:00"));
         let ann = related_annotation(&d).unwrap();
-        assert!(ann.starts_with("related: [[katha-design]]"), "{ann}");
+        assert!(ann.starts_with("related: [[lantern-design]]"), "{ann}");
     }
 
     #[test]
@@ -753,7 +767,7 @@ mod tests {
             )
             .unwrap()
         };
-        assert!(!mk("what is next for the Katha app?", false).is_action);
+        assert!(!mk("what is next for the Lantern app?", false).is_action);
         let forced = mk("water the garden beds at 6", true);
         assert!(forced.is_action);
         assert_eq!(forced.due_time.as_deref(), Some("18:00"));
