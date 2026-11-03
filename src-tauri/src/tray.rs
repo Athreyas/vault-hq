@@ -1,7 +1,7 @@
 // The menu-bar icon: a left click opens quick capture under it, a right click the menu.
 
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{App, Manager, Wry};
 use tauri_plugin_autostart::ManagerExt;
@@ -42,11 +42,31 @@ pub fn build(app: &App<Wry>) -> tauri::Result<()> {
     let login =
         CheckMenuItem::with_id(app, "login", "Open at login", true, at_login, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
+    // macOS's standard About window, with the credits
+    let about = PredefinedMenuItem::about(
+        app,
+        Some("About Vault HQ"),
+        Some(AboutMetadata {
+            name: Some("Vault HQ".into()),
+            version: Some(app.package_info().version.to_string()),
+            copyright: Some("© 2026 Athreyas · MIT license".into()),
+            credits: Some(
+                "Your data and your knowledge stay yours: plain files in folders you choose, \
+                 models on your Mac, no account, no cloud.\n\n\
+                 Envisioned and architected by Athreyas (monk97.me).\n\
+                 Built with Claude Code."
+                    .into(),
+            ),
+            website: Some("https://monk97.me".into()),
+            website_label: Some("monk97.me".into()),
+            ..Default::default()
+        }),
+    )?;
     let quit = PredefinedMenuItem::quit(app, Some("Quit Vault HQ"))?;
     let menu = Menu::with_items(
         app,
         &[
-            &open, &capture, &palette, &prefs, &reload, &sep, &login, &sep, &quit,
+            &open, &capture, &palette, &prefs, &reload, &sep, &login, &about, &sep, &quit,
         ],
     )?;
 
