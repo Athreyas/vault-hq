@@ -248,7 +248,9 @@ export default function Tasks({ notify, onChange, onOpenNote }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   });
 
-  const late = (t: Task) => t.due !== null && t.due < today && (t.status === "pending" || t.status === "started" || t.status === "waiting");
+  const nowHm = new Date().toTimeString().slice(0, 5);
+  const late = (t: Task) =>
+    t.due !== null && (t.due < today || (t.due === today && t.dueTime !== null && t.dueTime < nowHm)) && (t.status === "pending" || t.status === "started" || t.status === "waiting");
   let flat = -1;
 
   return (
@@ -277,7 +279,12 @@ export default function Tasks({ notify, onChange, onOpenNote }: Props) {
             ))}
             {quick.input.project && <span className="tk-chip">+{quick.input.project}</span>}
             {quick.input.priority && <span className="tk-chip">priority {quick.input.priority}</span>}
-            {quick.input.due && <span className="tk-chip">due {quick.input.due}</span>}
+            {quick.input.due && (
+              <span className="tk-chip">
+                due {quick.input.due}
+                {quick.input.dueTime ? ` ${quick.input.dueTime}` : ""}
+              </span>
+            )}
             {quick.input.scheduled && (
               <span className="tk-chip">
                 {quick.input.waiting ? "wait until" : "scheduled"} {quick.input.scheduled}
@@ -444,7 +451,9 @@ export default function Tasks({ notify, onChange, onOpenNote }: Props) {
                         {t.annotations.length > 0 && <span title="Annotations">+{t.annotations.length}</span>}
                         {t.status === "waiting" && t.scheduled && <span>until {shortDate(t.scheduled, today)}</span>}
                       </span>
-                      <span className={`tk-due ${late(t) ? "is-late" : ""}`}>{t.due ? shortDate(t.due, today) : ""}</span>
+                      <span className={`tk-due ${late(t) ? "is-late" : ""}`}>{t.due ? shortDate(t.due, today) : ""}
+                        {t.due && t.dueTime ? <span className="tk-time"> {t.dueTime}</span> : null}
+                      </span>
                       <span className="tk-urg" title="Urgency">
                         {t.status === "done" || t.status === "cancelled" ? (t.done ?? t.cancelled ?? "").slice(5) : t.urgency.toFixed(1)}
                       </span>

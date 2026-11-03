@@ -199,6 +199,10 @@
   text-align: right;
 }
 
+.tk-time {
+  font-variant-numeric: tabular-nums;
+}
+
 .tk-due.is-late,
 .tk .is-late {
   color: var(--attention);

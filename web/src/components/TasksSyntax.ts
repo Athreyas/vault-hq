@@ -1,5 +1,5 @@
 // The tasks view's inline syntax, Taskwarrior-flavoured:
-//   quick add / inline edit:  Fix the gate #home +garden due:fri p:h rec:weekly sched:+3d wait:mon dep:abc123
+//   quick add / inline edit:  Fix the gate #home +garden due:fri at:17:00 p:h rec:weekly sched:+3d wait:mon dep:abc123
 //   filter:                   +garden -travel project:home due:eow p:h status:done +OVERDUE +BLOCKED words
 // Dates: today, tomorrow, yesterday, mon…sun (the next one), +3d / 2w / 1m / 1y, eow, eom, eoy, YYYY-MM-DD.
 import type { Priority } from "../bindings/Priority.ts";
@@ -101,6 +101,25 @@ export function parsePriority(word: string): Priority | null | undefined {
   return PRIORITY_WORDS[w];
 }
 
+/** `17:00`, `9:05`, `5pm`, `5:30pm`, `9am` as `HH:MM` (24-hour), or null. */
+export function resolveTime(word: string): string | null {
+  const m = /^(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?$/i.exec(word.trim());
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = m[2] === undefined ? 0 : Number(m[2]);
+  const ampm = m[3]?.toLowerCase();
+  if (min > 59) return null;
+  if (ampm) {
+    if (h < 1 || h > 12) return null;
+    if (ampm === "pm" && h !== 12) h += 12;
+    if (ampm === "am" && h === 12) h = 0;
+  } else if (m[2] === undefined || h > 23) {
+    // a bare number is an hour only with am/pm; "at:5" is too ambiguous
+    return null;
+  }
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
 /** Taskwarrior-style repeat words as `🔁` rules. */
 export function resolveRecur(word: string): string | null {
   const w = word.trim().toLowerCase();
@@ -132,7 +151,7 @@ export interface QuickParse {
   /** Tokens that looked like syntax but did not parse, e.g. `due:someday`. */
   errors: string[];
   /** Fields that were set explicitly, for an edit to tell "cleared" from "untouched". */
-  set: Set<"priority" | "project" | "due" | "scheduled" | "start" | "recur" | "depends" | "tags">;
+  set: Set<"priority" | "project" | "due" | "dueTime" | "scheduled" | "start" | "recur" | "depends" | "tags">;
 }
 
 /** Parse a quick-add (or inline edit) line. Unknown words stay in the description. */
@@ -147,6 +166,7 @@ export function parseQuickAdd(text: string, today: string): QuickParse {
     start: null,
     scheduled: null,
     due: null,
+    dueTime: null,
     recur: null,
     depends: [],
     waiting: false,
@@ -186,6 +206,16 @@ export function parseQuickAdd(text: string, today: string): QuickParse {
         case "due":
           date("due");
           continue;
+        case "at":
+        case "time": {
+          const t = value === "" ? null : resolveTime(value);
+          if (value !== "" && !t) errors.push(tok);
+          else {
+            input.dueTime = t;
+            set.add("dueTime");
+          }
+          continue;
+        }
         case "sched":
         case "scheduled":
         case "sch":
@@ -242,6 +272,7 @@ export function parseQuickAdd(text: string, today: string): QuickParse {
     words.push(tok);
   }
   input.description = words.join(" ");
+  if (input.dueTime && !input.due) errors.push(`at:${input.dueTime} needs due:`);
   return { input, errors, set };
 }
 
@@ -254,6 +285,7 @@ export function taskToSyntax(t: Task): string {
   if (t.start) parts.push(`start:${t.start}`);
   if (t.scheduled) parts.push(`${t.status === "waiting" ? "wait" : "sched"}:${t.scheduled}`);
   if (t.due) parts.push(`due:${t.due}`);
+  if (t.due && t.dueTime) parts.push(`at:${t.dueTime}`);
   if (t.recur) {
     const short = /^every (?:(\d+) )?(day|week|month|year)s?$/.exec(t.recur);
     if (short) parts.push(`rec:${short[1] ?? 1}${short[2]![0]}`);
@@ -274,6 +306,7 @@ export function patchFrom(t: Task, edited: QuickParse): TaskPatch {
   if ((i.project ?? null) !== (t.project ?? null)) patch.project = i.project;
   if ((i.priority ?? null) !== (t.priority ?? null)) patch.priority = i.priority;
   if ((i.due ?? null) !== t.due) patch.due = i.due;
+  if ((i.dueTime ?? null) !== (t.dueTime ?? null)) patch.dueTime = i.dueTime;
   if ((i.scheduled ?? null) !== t.scheduled) patch.scheduled = i.scheduled;
   if ((i.start ?? null) !== t.start) patch.start = i.start;
   // a rule the short syntax cannot express is left alone unless the edit names one

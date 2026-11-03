@@ -210,6 +210,7 @@ export function emptyTaskInput(): TaskInput {
     start: null,
     scheduled: null,
     due: null,
+    dueTime: null,
     recur: null,
     depends: [],
     waiting: false,
