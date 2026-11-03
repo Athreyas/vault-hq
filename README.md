@@ -6,7 +6,7 @@ bookmarks and the day's trail live in that folder as files any tool can read; HQ
 where you see them, act on them and ask them questions, with models that run on your
 own Mac. Nothing leaves the machine.
 
-> Envisioned and architected by **[Athreyas](https://github.com/Athreyas)** · built with **[Claude Code](https://claude.com/claude-code)**
+> Envisioned and architected by **[Athreyas](https://monk97.me)** · built with **[Claude Code](https://claude.com/claude-code)**
 
 ![Home: the day's trail, what needs a decision, and every active project](docs/screenshots/home.png)
 
@@ -109,7 +109,7 @@ Releases are signed and notarized only on the maintainer's Mac
 
 ## Credits
 
-Vault HQ was envisioned and architected by **Athreyas**, who set its direction, its
+Vault HQ was envisioned and architected by **[Athreyas](https://monk97.me)**, who set its direction, its
 principles and every design decision, and was built with **Claude Code** (Anthropic),
 working as the engineering team: the spec, the parallel workstreams, the code, the tests
 and the reviews. See [AUTHORS.md](AUTHORS.md).

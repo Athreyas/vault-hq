@@ -6,8 +6,9 @@ members = ["crates/hq-core", "crates/hq-mcp", "src-tauri"]
 version = "2.0.0-dev"
 edition = "2021"
 license = "MIT"
-authors = ["Athreyas <https://github.com/Athreyas>", "Claude Code <https://claude.com/claude-code>"]
+authors = ["Athreyas <https://monk97.me>", "Claude Code <https://claude.com/claude-code>"]
 repository = "https://github.com/Athreyas/vault-hq"
+homepage = "https://monk97.me"
 
 [workspace.dependencies]
 hq-core = { path = "crates/hq-core" }
