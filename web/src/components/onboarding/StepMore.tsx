@@ -5,11 +5,11 @@ import { useEffect, useState } from "react";
 import {
   bookmarksEnrich,
   bookmarksImport,
+  type BookmarkImportReport,
+  bookmarkReportLine,
   type BrowserSource,
   browserAllow,
   browsersDetect,
-  countsLine,
-  type ImportCounts,
   message,
   ollamaRecommend,
   ollamaStatus,
@@ -237,8 +237,10 @@ export function StepBookmarks() {
   const [sources, setSources] = useState<BrowserSource[] | null>(null);
   const [missing, setMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<BookmarkImportReport[] | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number; lines: string[] } | null>(null);
   const [enrich, setEnrich] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const detect = () =>
     browsersDetect().then(setSources, (e: unknown) => (unavailable(e) ? setMissing(true) : setError(message(e))));
@@ -246,22 +248,41 @@ export function StepBookmarks() {
 
   if (missing) return <NotBuilt what="Browser bookmarks" />;
 
-  const allow = (s: BrowserSource, on: boolean) =>
+  const allow = (s: BrowserSource, on: boolean) => {
+    setPreview(null);
     browserAllow(s.id, on).then(
       () => detect(),
       (e: unknown) => setError(message(e)),
     );
+  };
 
-  const allowed = (sources ?? []).filter((s) => s.allowed);
+  const allowed = (sources ?? []).filter((s) => s.allowed && !s.needsAccess);
+  const label = (id: string) => sources?.find((s) => s.id === id)?.label ?? id;
+
+  // dry run first: what would land where, nothing written
+  const dryRun = async () => {
+    setBusy(true);
+    setError(null);
+    const out: BookmarkImportReport[] = [];
+    for (const s of allowed) {
+      try {
+        out.push(await bookmarksImport(s.id, true));
+      } catch (e) {
+        setError(`${s.label}: ${message(e)}`);
+      }
+    }
+    setPreview(out);
+    setBusy(false);
+  };
 
   const importAll = async () => {
+    setBusy(true);
     setError(null);
     const lines: string[] = [];
     setProgress({ done: 0, total: allowed.length, lines });
     for (const [i, s] of allowed.entries()) {
       try {
-        const r = await bookmarksImport(s.id, false);
-        lines.push(`${s.label}: ${countsLine(r)}`);
+        lines.push(`${s.label}: ${bookmarkReportLine(await bookmarksImport(s.id, false))}`);
       } catch (e) {
         lines.push(`${s.label}: ${message(e)}`);
       }
@@ -270,16 +291,19 @@ export function StepBookmarks() {
     if (enrich) {
       try {
         await settingsUpdate({ enrichBookmarks: true });
-        await bookmarksEnrich();
-        lines.push("Enrichment started: tags and summaries fill in in the background.");
+        lines.push("Adding tags and summaries with the local model…");
+        setProgress({ done: allowed.length, total: allowed.length, lines: [...lines] });
+        const r = await bookmarksEnrich();
+        lines.push(`Enriched ${r.enriched}${r.failed ? `, ${r.failed} failed` : ""}${r.cancelled ? " (stopped)" : ""}.`);
       } catch (e) {
         lines.push(`Enrichment: ${message(e)}`);
       }
       setProgress({ done: allowed.length, total: allowed.length, lines: [...lines] });
     }
+    setPreview(null);
+    setBusy(false);
+    void detect();
   };
-
-  const safariDenied = (sources ?? []).some((s) => (s.browser === "safari" || s.id === "safari") && (s.denied || s.problem));
 
   return (
     <div className="ob-stack">
@@ -294,14 +318,14 @@ export function StepBookmarks() {
           <legend className="ob-label">read bookmarks from</legend>
           {sources.map((s) => (
             <label key={s.id} className="ob-row">
-              <input type="checkbox" checked={s.allowed} onChange={(e) => void allow(s, e.target.checked)} />
+              <input type="checkbox" checked={s.allowed} disabled={busy} onChange={(e) => allow(s, e.target.checked)} />
               <span className="ob-row-main">
-                <b>{s.label}</b>{" "}
-                {typeof s.count === "number" && <span className="ob-muted">{s.count} bookmarks</span>}
-                {s.problem && (
+                <b>{s.label}</b> {typeof s.count === "number" && <span className="ob-muted">{s.count} bookmarks</span>}
+                {s.needsAccess && <span className="ob-chip">needs Full Disk Access</span>}
+                {s.guidance && (
                   <>
                     <br />
-                    <span className="ob-muted">{s.problem}</span>
+                    <span className="ob-muted">{s.guidance}</span>
                   </>
                 )}
               </span>
@@ -309,30 +333,49 @@ export function StepBookmarks() {
           ))}
         </fieldset>
       )}
-      {safariDenied && (
-        <p className="ob-status">
-          Safari's bookmarks need Full Disk Access: System Settings → Privacy &amp; Security → Full Disk Access → turn on
-          Vault HQ. Or, in Safari, File → Export → Bookmarks…, and import that HTML file from Settings → Bookmarks.
-        </p>
-      )}
-      {allowed.length > 0 && (
+      {allowed.length > 0 && !progress && (
         <div className="ob-stack">
-          <label className="ob-row">
-            <input type="checkbox" checked={enrich} onChange={(e) => setEnrich(e.target.checked)} />
-            <span className="ob-row-main">
-              Also add tags and a one-line summary with the local model <span className="ob-muted">(fetches each page; can be stopped)</span>
-            </span>
-          </label>
-          <div>
-            <button
-              type="button"
-              className="ob-button is-primary"
-              disabled={progress !== null && progress.done < progress.total}
-              onClick={() => void importAll()}
-            >
-              import from {allowed.length} {allowed.length === 1 ? "browser" : "browsers"}
-            </button>
-          </div>
+          {!preview ? (
+            <div>
+              <button type="button" className="ob-button" disabled={busy} onClick={() => void dryRun()}>
+                {busy ? "reading…" : "dry run: show what would come in"}
+              </button>
+            </div>
+          ) : (
+            <>
+              <ul className="ob-list">
+                {preview.map((r) => (
+                  <li key={r.sourceId}>
+                    <b>{label(r.sourceId)}</b>: {bookmarkReportLine(r)}
+                    {r.sample.length > 0 && (
+                      <ul className="ob-list">
+                        {r.sample.slice(0, 3).map((b) => (
+                          <li key={b.rel}>
+                            {b.title} <span className="ob-muted">→ {b.rel}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <label className="ob-row">
+                <input type="checkbox" checked={enrich} onChange={(e) => setEnrich(e.target.checked)} />
+                <span className="ob-row-main">
+                  Also add tags and a one-line summary with the local model{" "}
+                  <span className="ob-muted">(fetches each page; can be stopped later)</span>
+                </span>
+              </label>
+              <div className="ob-inline">
+                <button type="button" className="ob-button is-primary" disabled={busy} onClick={() => void importAll()}>
+                  import from {allowed.length} {allowed.length === 1 ? "browser" : "browsers"}
+                </button>
+                <button type="button" className="ob-link" onClick={() => setPreview(null)}>
+                  cancel
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
       {progress && (

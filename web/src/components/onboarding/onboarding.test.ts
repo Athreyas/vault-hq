@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countsLine, OnboardingError, taskReportLine, toError, unavailable } from "../../api/onboarding.ts";
+import { bookmarkReportLine, OnboardingError, taskReportLine, toError, unavailable } from "../../api/onboarding.ts";
 import type { PlanItem } from "../../bindings/PlanItem.ts";
 import { withTicks } from "./ImportAssistant.tsx";
 import { neighbour } from "./Onboarding.tsx";
@@ -50,9 +50,9 @@ describe("helpers", () => {
       chat: ["qwen2.5:7b"],
     });
   });
-  it("summarises another stream's import report", () => {
-    expect(countsLine({ created: 3, skipped: 1, dryRun: true })).toBe("3 created · 1 skipped");
-    expect(countsLine({})).toBe("done");
+  it("summarises a bookmark import", () => {
+    const r = { sourceId: "chrome:Default", dryRun: true, found: 10, added: 7, updated: 0, unchanged: 3, removed: 0, duplicates: 0, sample: [], errors: [] };
+    expect(bookmarkReportLine(r)).toBe("10 found · 7 new · 3 already in the vault");
   });
   it("summarises a Taskwarrior import", () => {
     const r = { dryRun: true, total: 5, pending: 3, waiting: 1, completed: 1, deleted: 2, templates: 0, duplicates: 1, written: 4, targets: [], sample: [], warnings: [] };

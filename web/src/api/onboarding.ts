@@ -5,8 +5,11 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { Agent } from "../bindings/Agent.ts";
+import type { BookmarkImportReport } from "../bindings/BookmarkImportReport.ts";
+import type { BrowserSource } from "../bindings/BrowserSource.ts";
 import type { ConfigApplied } from "../bindings/ConfigApplied.ts";
 import type { ConfigDiff } from "../bindings/ConfigDiff.ts";
+import type { EnrichReport } from "../bindings/EnrichReport.ts";
 import type { ImportAnalysis } from "../bindings/ImportAnalysis.ts";
 import type { ImportPlan } from "../bindings/ImportPlan.ts";
 import type { LocationSuggestion } from "../bindings/LocationSuggestion.ts";
@@ -18,6 +21,9 @@ import type { VaultInfo } from "../bindings/VaultInfo.ts";
 
 export type {
   Agent,
+  BookmarkImportReport,
+  BrowserSource,
+  EnrichReport,
   ConfigApplied,
   ConfigDiff,
   ImportAnalysis,
@@ -88,8 +94,8 @@ export const importAnalyze = (path: string) => call<ImportAnalysis>("import_anal
 export const importApply = (plan: ImportPlan) => call<RestructureReport>("import_apply", { plan });
 export const importUndo = (path: string, journal: string) => call<RestructureReport>("import_undo", { path, journal });
 
-// ---- other streams, by their SPEC names. Shapes are kept loose on purpose: only the
-// fields the wizard shows, all optional beyond the essentials. -------------------------------
+// ---- other streams, by their SPEC names: B tasks and F bookmarks use their generated types;
+// A (vaults) and C (Ollama) keep loose local shapes until their types are settled. ----------
 
 export const vaultsList = () => call<VaultInfo[]>("vaults_list");
 export const vaultCreate = (path: string, name: string) =>
@@ -97,17 +103,6 @@ export const vaultCreate = (path: string, name: string) =>
 export const vaultAdd = (path: string) => call<VaultInfo>("vault_add", { path });
 export const vaultSetPrimary = (id: string) => call<unknown>("vault_set_primary", { id });
 
-export interface ImportCounts {
-  dryRun?: boolean;
-  created?: number;
-  added?: number;
-  updated?: number;
-  skipped?: number;
-  total?: number;
-  sample?: string[];
-  messages?: string[];
-  [key: string]: unknown;
-}
 /** Stream B's Taskwarrior import into the primary vault; `dryRun` first, then for real. */
 export const tasksImport = (dryRun: boolean) => call<TaskImportReport>("tasks_import_taskwarrior", { dryRun });
 
@@ -140,32 +135,23 @@ export const ollamaStatus = () => call<OllamaStatus>("ollama_status");
 export const ollamaRecommend = () => call<Recommendation>("ollama_recommend");
 export const settingsUpdate = (patch: Record<string, unknown>) => call<unknown>("settings_update", { patch });
 
-export interface BrowserSource {
-  id: string;
-  browser?: string;
-  label: string;
-  allowed: boolean;
-  count?: number | null;
-  /** macOS refused the read (Safari without Full Disk Access). */
-  denied?: boolean;
-  problem?: string | null;
-  [key: string]: unknown;
-}
+/** Stream F's browser sources; nothing is read until `browserAllow`. */
 export const browsersDetect = () => call<BrowserSource[]>("browsers_detect");
-export const browserAllow = (sourceId: string, allowed: boolean) => call<unknown>("browser_allow", { sourceId, allowed });
+export const browserAllow = (sourceId: string, allowed: boolean) => call<null>("browser_allow", { sourceId, allowed });
 export const bookmarksImport = (sourceId: string, dryRun: boolean) =>
-  call<ImportCounts>("bookmarks_import", { sourceId, dryRun });
-export const bookmarksEnrich = () => call<unknown>("bookmarks_enrich", { ids: null });
+  call<BookmarkImportReport>("bookmarks_import", { sourceId, dryRun });
+export const bookmarksEnrich = () => call<EnrichReport>("bookmarks_enrich", { ids: null });
 
-/** A one-line summary of an import report whose exact shape belongs to another stream. */
-export function countsLine(r: ImportCounts | null | undefined): string {
-  if (!r) return "";
-  const parts: string[] = [];
-  for (const [k, v] of Object.entries(r)) {
-    if (typeof v === "number") parts.push(`${v} ${k}`);
-  }
-  return parts.join(" · ") || "done";
+/** "120 found · 80 new · 3 updated". */
+export function bookmarkReportLine(r: BookmarkImportReport): string {
+  const parts = [`${r.found} found`, `${r.added} ${r.dryRun ? "new" : "added"}`];
+  if (r.updated) parts.push(`${r.updated} updated`);
+  if (r.unchanged) parts.push(`${r.unchanged} already in the vault`);
+  if (r.duplicates) parts.push(`${r.duplicates} duplicates`);
+  if (r.errors.length) parts.push(`${r.errors.length} errors`);
+  return parts.join(" · ");
 }
+
 
 // ---- clipboard ----------------------------------------------------------------------------
 
