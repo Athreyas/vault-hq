@@ -102,6 +102,11 @@ pub struct NoteFilter {
     pub updated_since: Option<String>,
     #[ts(optional)]
     pub limit: Option<u32>,
+    /// Leave out the vault's agent housekeeping (`AGENTS.md`, `CLAUDE.md`, `06-Memory/`).
+    /// The Notes view sets it; search and agents still see those notes.
+    #[serde(default)]
+    #[ts(optional)]
+    pub hide_system: Option<bool>,
 }
 
 /// One outgoing link of a note and where it resolves (SPEC 3), if anywhere.
@@ -1647,6 +1652,11 @@ pub struct SystemSample {
     pub disk_free: Option<u64>,
     #[ts(type = "number | null")]
     pub disk_total: Option<u64>,
+    /// What Finder calls available: free space plus purgeable space (iCloud copies that
+    /// can be downloaded again, caches, local snapshots) that macOS clears on demand.
+    #[serde(default)]
+    #[ts(type = "number | null")]
+    pub disk_available: Option<u64>,
     pub battery: Option<Battery>,
     #[ts(type = "number")]
     pub uptime_secs: u64,

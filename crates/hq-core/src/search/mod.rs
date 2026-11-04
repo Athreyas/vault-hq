@@ -10,6 +10,7 @@ pub mod ask;
 pub mod bm25;
 pub mod chunk;
 pub mod conversations;
+pub mod task_facts;
 pub mod vectors;
 
 use std::collections::HashMap;

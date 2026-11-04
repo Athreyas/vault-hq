@@ -15,4 +15,9 @@ text?: string,
 /**
  * Notes updated on or after this `YYYY-MM-DD`.
  */
-updatedSince?: string, limit?: number, };
+updatedSince?: string, limit?: number, 
+/**
+ * Leave out the vault's agent housekeeping (`AGENTS.md`, `CLAUDE.md`, `06-Memory/`).
+ * The Notes view sets it; search and agents still see those notes.
+ */
+hideSystem?: boolean, };

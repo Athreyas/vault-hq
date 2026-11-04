@@ -10,7 +10,7 @@ const ARCHIVE = "08-Archive/";
 // The vaults' notes, read inside HQ: a filterable list on the left, the note on the right
 // with its properties and the notes that link to it.
 export default function Notes({ note, notify }: { note: string | null; notify: Notify }) {
-  const list = useCall(() => api.notes(), "notes", { refreshMs: 60_000 });
+  const list = useCall(() => api.notes({ hideSystem: true }), "notes", { refreshMs: 60_000 });
   const view = useCall<NoteView | null>(() => (note ? api.note(note) : Promise.resolve(null)), note ?? "", { refreshMs: 30_000 });
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<"folder" | "recent">("folder");
@@ -19,6 +19,8 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
   const input = useRef<HTMLInputElement>(null);
   const shown = note && view.data ? view.data : null;
   const vaults = useMemo(() => new Set((list.data ?? []).map((n) => n.vault)).size, [list.data]);
+  const vaultInfo = useCall(() => api.vaults(), "vaults");
+  const vaultName = useMemo(() => new Map((vaultInfo.data ?? []).map((v) => [v.id, v.name])), [vaultInfo.data]);
 
   const items = useMemo(() => {
     const words = filter.toLowerCase().split(/\s+/).filter(Boolean);
@@ -105,7 +107,7 @@ export default function Notes({ note, notify }: { note: string | null; notify: N
         {list.error && <Problem error={list.error} what="the note list" />}
         <ul className="note-list">
           {items.map((n, i) => {
-            const folder = vaults > 1 ? `${n.vault.slice(0, 6)} · ${n.folder}` : n.folder;
+            const folder = vaults > 1 ? `${vaultName.get(n.vault) ?? n.vault.slice(0, 6)} · ${n.folder}` : n.folder;
             const head = sort === "folder" && folder !== lastFolder ? folder || "vault root" : null;
             lastFolder = folder;
             const active = shown?.id === n.id;

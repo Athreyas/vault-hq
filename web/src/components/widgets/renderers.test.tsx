@@ -24,6 +24,7 @@ describe("renderers", () => {
           swapUsed: 0,
           diskFree: 100 * 1024 ** 3,
           diskTotal: 500 * 1024 ** 3,
+          diskAvailable: null,
           battery: { pct: 80, charging: true, plugged: true },
           uptimeSecs: 7200,
           top: [{ name: "editor", cpuPct: 30, mem: 1 }],

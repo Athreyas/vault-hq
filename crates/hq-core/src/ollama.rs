@@ -20,6 +20,16 @@ use crate::types::{OllamaStatus, Recommendation};
 
 pub const DEFAULT_URL: &str = "http://127.0.0.1:11434";
 
+/// One context size for every chat call. Ollama reloads a model whenever `num_ctx`
+/// changes, so Ask (streamed) and action drafts (JSON) asking for different sizes cost a
+/// full reload, about 15-20 s for an 8B model, each time the user switched between them.
+pub const NUM_CTX: u32 = 8192;
+
+/// How long Ollama keeps a model loaded after a call. Its default is 5 minutes, so a
+/// question asked after a short pause paid the load again; 30 minutes covers a working
+/// session and still frees the memory when HQ sits idle.
+pub const KEEP_ALIVE: &str = "30m";
+
 const BINARIES: &[&str] = &[
     "/opt/homebrew/bin/ollama",
     "/usr/local/bin/ollama",
@@ -247,7 +257,7 @@ impl Client {
         let mut r = self
             .agent
             .post(format!("{}/api/embed", self.base))
-            .send_json(json!({ "model": model, "input": inputs }))
+            .send_json(json!({ "model": model, "input": inputs, "keep_alive": KEEP_ALIVE }))
             .map_err(|e| self.unreachable(e))?;
         let status = r.status().as_u16();
         let body = r
@@ -284,7 +294,8 @@ impl Client {
                 "model": model,
                 "stream": true,
                 "messages": messages,
-                "options": { "temperature": 0.1, "num_ctx": 8192 },
+                "keep_alive": KEEP_ALIVE,
+                "options": { "temperature": 0.1, "num_ctx": NUM_CTX },
             }))
             .map_err(|e| self.unreachable(e))?;
         let status = r.status().as_u16();
@@ -320,7 +331,8 @@ impl Client {
                 "stream": false,
                 "format": schema,
                 "messages": messages,
-                "options": { "temperature": 0 },
+                "keep_alive": KEEP_ALIVE,
+                "options": { "temperature": 0, "num_ctx": NUM_CTX },
             }))
             .map_err(|e| self.unreachable(e))?;
         let status = r.status().as_u16();

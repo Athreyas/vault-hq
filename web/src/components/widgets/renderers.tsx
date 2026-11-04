@@ -132,7 +132,17 @@ function System({ body }: { body: Body<"system"> }) {
         <div className="w-metric">
           <span className="w-key">disk</span>
           <Meter pct={diskPct} label={`Disk ${Math.round(diskPct)}% used`} />
-          <span className="w-num">{bytes(s.diskFree)} free</span>
+          <span
+            className="w-num"
+            title={
+              s.diskAvailable && s.diskAvailable > s.diskFree
+                ? `${bytes(s.diskFree)} free now; ${bytes(s.diskAvailable)} available as Finder counts it, once macOS clears purgeable space (iCloud copies, caches, snapshots)`
+                : undefined
+            }
+          >
+            {bytes(s.diskFree)} free
+            {s.diskAvailable && s.diskAvailable - s.diskFree > 1024 ** 3 ? ` · ${bytes(s.diskAvailable)} avail` : ""}
+          </span>
         </div>
       )}
       {s.battery && (

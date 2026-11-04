@@ -15,6 +15,8 @@ export interface ActionHandlers {
 
 export default function AskTurn({ turn: t, vaultNames, onAction }: { turn: UiTurn; vaultNames: Map<string, string>; onAction: ActionHandlers }) {
   const waiting = t.streaming && !t.answer;
+  // the sources the answer actually cites, once each; the rest stay folded away
+  const cited = t.sources.filter((s, i) => t.sources.findIndex((x) => x.stem === s.stem) === i && t.answer.includes(`[[${s.stem}`));
   if (t.mode === "action" && t.action) {
     return (
       <li className="ask-turn is-action">
@@ -64,10 +66,24 @@ export default function AskTurn({ turn: t, vaultNames, onAction }: { turn: UiTur
       {t.mode === "search" && t.error && <p className="is-error">{t.error}</p>}
       {t.mode === "search" && !t.streaming && !t.error && t.sources.length === 0 && <p className="ask-wait">no note matches that in this scope. Widen the scope or try other words.</p>}
 
+      {t.mode === "ask" && !t.streaming && cited.length > 0 && (
+        <p className="ask-cited">
+          <span className="label">sources </span>
+          {cited.map((s, i) => (
+            <span key={s.id}>
+              {i > 0 && " · "}
+              <a className="note-link" href={noteUrl(s.rel)} title={s.id}>
+                {s.stem}
+              </a>
+              {s.kind === "bookmark" && <span className="ask-badge">bookmark</span>}
+            </span>
+          ))}
+        </p>
+      )}
       {t.sources.length > 0 && (
         <details className="ask-sources" open={t.mode === "search"}>
           <summary>
-            <span className="label">{t.mode === "ask" ? `read from ${t.sources.length}` : `${t.sources.length} matches`}</span>
+            <span className="label">{t.mode === "ask" ? `all ${t.sources.length} read` : `${t.sources.length} matches`}</span>
           </summary>
           <ol>
             {t.sources.map((s, j) => (

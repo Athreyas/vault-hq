@@ -351,6 +351,12 @@ impl Backend for CoreBackend {
         });
         let chat: Option<&dyn Chat> = (!settings.ollama.chat_model.is_empty()).then_some(&chat);
         let today = util::today();
+        let tasks = if hq_core::search::task_facts::about_tasks(&input.question) {
+            let day = resolve_today(None)?;
+            hq_core::search::task_facts::digest(&TaskIndex::build(&vaults).finished(day), day)
+        } else {
+            None
+        };
         let mut sources = Vec::new();
         let mut semantic_used = false;
         // over MCP the answer is not saved as a conversation note: ask stays read-only
@@ -361,6 +367,7 @@ impl Backend for CoreBackend {
                 scope: &scope,
                 conversation: None,
                 today: &today,
+                tasks: tasks.as_deref(),
             },
             &ask::AskVaults {
                 all: &vaults,
@@ -419,6 +426,7 @@ impl Backend for CoreBackend {
             text: input.text,
             updated_since: input.updated_since,
             limit: None,
+            hide_system: None,
         };
         let all = self.hq.notes_list(&filter);
         let total = all.len() as u32;

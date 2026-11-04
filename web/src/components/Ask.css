@@ -263,6 +263,13 @@
 
 .ask-cited {
   font-size: var(--t-sm);
+  color: var(--ink-muted);
+}
+
+/* citations inside an answer: present, but quieter than the answer itself */
+.ask-a .note-link:not(.is-external) {
+  font-size: var(--t-sm);
+  color: var(--ink-muted);
 }
 
 /* ---- prompt ---- */
